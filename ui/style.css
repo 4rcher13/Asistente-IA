@@ -1,0 +1,148 @@
+/* CSS Variables para estandarizar y facilitar modificaciones */
+:root {
+    /* Tamaños */
+    --orb-base-size: 100px;
+    --orb-container-size: 250px;
+
+    /* Colores base para efecto glassmorphism */
+    --glass-light: rgba(255, 255, 255, 0.8);
+    --glass-mid: rgba(255, 255, 255, 0.2);
+    --glass-dark: rgba(0, 0, 0, 0.5);
+
+    /* Sombras base */
+    --shadow-inset-dark: inset -10px -10px 20px rgba(0, 0, 0, 0.5);
+    --shadow-inset-light: inset 10px 10px 20px rgba(255, 255, 255, 0.8);
+    --shadow-hover-glow: 0 0 30px rgba(100, 200, 255, 0.4); /* Nuevo para hover */
+
+    /* Colores específicos por estado */
+    --color-sleeping-glow: rgba(100, 200, 255, 0.2);
+    --color-listening-primary: rgba(50, 150, 255, 0.8);
+    --color-listening-secondary: rgba(50, 150, 255, 0.4);
+    --color-thinking-primary: rgba(50, 255, 100, 0.8);
+    --color-thinking-secondary: rgba(50, 255, 100, 0.4);
+    --color-speaking-primary: rgba(180, 50, 255, 0.9);
+    --color-speaking-secondary: rgba(180, 50, 255, 0.5);
+    --color-error-primary: rgba(255, 50, 50, 0.9);
+    --color-error-bg-light: rgba(255, 200, 200, 0.9);
+    --color-error-bg-mid: rgba(255, 50, 50, 0.8);
+    --color-error-bg-dark: rgba(150, 0, 0, 0.8);
+}
+
+/* Reset y estilos base */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background-color: transparent; /* Fondo transparente para superposición de ventana */
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    width: 100vw;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* Fuente predeterminada para consistencia */
+    -webkit-font-smoothing: antialiased; /* Mejorar renderizado de fuentes */
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Contenedor para centrar el orbe perfectamente */
+.orb-container {
+    width: var(--orb-container-size);
+    height: var(--orb-container-size);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Estilos base del Orbe */
+.orb {
+    width: var(--orb-base-size);
+    height: var(--orb-base-size);
+    border-radius: 50%;
+    /* Efecto glassmorphism base */
+    background: radial-gradient(circle at 30% 30%, var(--glass-light), var(--glass-mid), var(--glass-dark));
+    box-shadow: var(--shadow-inset-dark), var(--shadow-inset-light);
+    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); /* Transición más suave para todos los cambios */
+    /* Optimización de rendimiento para animaciones */
+    will-change: transform, box-shadow, background, border-radius, opacity, filter; 
+    display: flex; /* Añadido para posibles elementos internos futuros */
+    justify-content: center;
+    align-items: center;
+    cursor: pointer; /* Indica que es interactuable */
+}
+
+/* Efecto al pasar el ratón (Hover) */
+.orb:hover {
+    transform: scale(1.08); /* Ligeramente más grande */
+    box-shadow: var(--shadow-inset-dark), var(--shadow-inset-light), var(--shadow-hover-glow); /* Añadir un brillo sutil */
+    filter: brightness(1.1); /* Ligeramente más brillante */
+}
+
+/* --- ESTADOS --- */
+
+/* Durmiendo (Reposo sutil, Cyan/Blanco tenue) */
+.sleeping {
+    box-shadow: 0 0 20px var(--color-sleeping-glow), var(--shadow-inset-dark);
+    animation: breathe-sleep 4s infinite ease-in-out;
+}
+
+/* Escuchando (Azul Brillante) */
+.listening {
+    background: radial-gradient(circle at 30% 30%, var(--glass-light), var(--color-listening-primary), rgba(0,50,150,0.8));
+    box-shadow: 0 0 40px var(--color-listening-primary), 0 0 80px var(--color-listening-secondary), inset -10px -10px 20px rgba(0,0,0,0.3);
+    animation: pulse-listen 1.5s infinite ease-in-out;
+}
+
+/* Procesando/Pensando (Verde) */
+.thinking {
+    background: radial-gradient(circle at 30% 30%, var(--glass-light), var(--color-thinking-primary), rgba(0,150,50,0.8));
+    box-shadow: 0 0 30px var(--color-thinking-primary), 0 0 60px var(--color-thinking-secondary);
+    animation: spin-think 2s infinite linear;
+}
+
+/* Respondiendo/Hablando (Morado) */
+.speaking {
+    background: radial-gradient(circle at 30% 30%, var(--glass-light), var(--color-speaking-primary), rgba(80,0,150,0.8));
+    box-shadow: 0 0 50px var(--color-speaking-primary), 0 0 100px var(--color-speaking-secondary);
+    animation: pulse-speak 0.4s infinite alternate ease-in-out;
+}
+
+/* Error (Rojo) */
+.error {
+    background: radial-gradient(circle at 30% 30%, var(--color-error-bg-light), var(--color-error-bg-mid), var(--color-error-bg-dark));
+    box-shadow: 0 0 40px var(--color-error-primary);
+    animation: shake-error 0.5s ease-in-out;
+}
+
+
+/* --- ANIMACIONES --- */
+
+@keyframes breathe-sleep {
+    0%, 100% { transform: scale(1); opacity: 0.7; }
+    50% { transform: scale(1.05); opacity: 1; }
+}
+
+@keyframes pulse-listen {
+    0%, 100% { transform: scale(1.05); } /* Menos agresivo, más amigable */
+    50% { transform: scale(1.15); }
+}
+
+@keyframes spin-think {
+    0% { transform: scale(1.1) rotate(0deg); border-radius: 40% 60% 60% 40% / 50% 40% 60% 50%; }
+    50% { border-radius: 60% 40% 40% 60% / 60% 50% 50% 40%; }
+    100% { transform: scale(1.1) rotate(360deg); border-radius: 40% 60% 60% 40% / 50% 40% 60% 50%; }
+}
+
+@keyframes pulse-speak {
+    0% { transform: scale(1.2); opacity: 0.8; }
+    100% { transform: scale(1.35); opacity: 1; }
+}
+
+@keyframes shake-error {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-10px); }
+    40%, 80% { transform: translateX(10px); }
+}

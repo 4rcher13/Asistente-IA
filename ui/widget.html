@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ícaro UI</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="orb-container">
+        <div id="orb" class="orb sleeping"></div>
+    </div>
+    <!-- Simple API exposed to Python -->
+    <script>
+        const orb = document.getElementById('orb');
+
+        function changeState(newState) {
+            if (!orb) return;
+            // Remove all previous states
+            orb.classList.remove('sleeping', 'listening', 'thinking', 'speaking', 'error');
+            
+            // Add new state
+            orb.classList.add(newState);
+        }
+
+        // Initial state
+        changeState('sleeping');
+        window.changeState = changeState;
+    </script>
+</body>
+</html>
