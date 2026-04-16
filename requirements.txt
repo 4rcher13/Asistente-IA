@@ -1,0 +1,7 @@
+python-dotenv
+SpeechRecognition
+google-generativeai
+pytest
+pyttsx3
+pyaudio
+ollama

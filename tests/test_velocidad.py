@@ -3,7 +3,7 @@ import sys
 import time
 
 # Ajuste de rutas
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def medir_tiempos():
     print("=== ANÁLISIS DE RENDIMIENTO DE ÍCARO (Qwen2.5:3b) ===\n")
