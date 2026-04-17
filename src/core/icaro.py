@@ -13,15 +13,24 @@ logger = logging.getLogger(__name__)
 class Icaro:
     """Orquestador principal del asistente. Maneja el ciclo de vida Unidireccional."""
     
-    def __init__(self):
+    def __init__(self, silent: bool = False, no_ai: bool = False):
         logger.info("Iniciando subsistemas en arquitectura limpia...")
+        self.silent = silent
+        self.no_ai = no_ai
+        
         # 1. Capa de Datos (Memoria)
         self.memory = MemoryManager()
         
         # 2. Servicios Base (Audio, IA, Acciones)
         self.audio = AudioService()
         self.action = ActionService()
-        self.ai = AIService(self.memory) # IA se alimenta de memoria
+        self.ai = AIService(self.memory)
+        
+        # Se deshabilita IA si el usuario pasó --no-ai
+        if self.no_ai:
+            self.ai.ia_habilitada = False
+            self.ai.ollama_habilitado = False
+            logger.info("Modo --no-ai activo: solo comandos locales.")
         
         # 3. Router Lógico
         self.processor = CommandProcessor(self.ai, self.action)
@@ -36,7 +45,8 @@ class Icaro:
 
     def iniciar(self):
         """Mantiene activo el asistente escuchando y decidiendo."""
-        self.audio.hablar("Sistemas inicializados en modo nativo.")
+        if not self.silent:
+            self.audio.hablar("Sistemas inicializados en modo nativo.")
         
         try:
             while self.running:

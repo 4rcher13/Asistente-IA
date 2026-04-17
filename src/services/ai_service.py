@@ -148,7 +148,8 @@ Ejemplo: {{"intent": "abrir_aplicacion", "target": "vscode", "respuesta": "Abrie
             
         if self.ia_habilitada:
             try:
-                return self.chat.send_message(text).text
+                result = self.chat.send_message(text).text
+                return result if result is not None else "Sin respuesta disponible."
             except: pass
         return "Resumen no disponible ahora."
         

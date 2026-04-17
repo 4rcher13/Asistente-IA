@@ -46,5 +46,14 @@ class TestAudio(unittest.TestCase):
         res = self.audio.escuchar(timeout_silencio=0.1, limite_segundo=1)
         self.assertEqual(res, "")
 
+    def test_escuchar_oserror_permisos(self):
+        """Simula un fallo de hardware o permisos denegados al acceder al micrófono."""
+        self.audio.microphone.__enter__ = MagicMock(side_effect=OSError("Dispositivo no encontrado"))
+        # Si el mic falla, el fallback es la terminal — lo mockeamos para no bloquear
+        with patch("builtins.input", return_value=""):
+            res = self.audio.escuchar(timeout_silencio=0.1, limite_segundo=1)
+        # Debe degradarse limpiamente sin lanzar excepción al caller
+        self.assertIsInstance(res, str)
+
 if __name__ == "__main__":
     unittest.main()
