@@ -5,3 +5,5 @@ logs/
 *.log
 data/historial.json
 data/*.tmp
+.venv/
+.pytest_cache/
