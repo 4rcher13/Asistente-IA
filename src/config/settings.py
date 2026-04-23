@@ -13,8 +13,10 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # IA
 # ==========================================
-WAKE_WORD = {"icaro", "si claro", "vicaro", "y creo", "y claro", "y caro", "claro", "y quiero"}
+# Solo variaciones fonéticas reales del nombre Ícaro
+WAKE_WORD = {"icaro", "ícaro", "vicaro", "vícaro", "pícaro", "hícaro", "e caro", "ikáro"}
 MODELO_LOCAL = "qwen2.5:3b"
+MIC_INDEX = 7  # Intel Smart Sound detectado en diagnóstico
 
 # Historial
 # ==========================================

@@ -3,28 +3,119 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ícaro UI</title>
+    <title>Ícaro</title>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="orb-container">
-        <div id="orb" class="orb sleeping"></div>
-    </div>
-    <!-- Simple API exposed to Python -->
-    <script>
-        const orb = document.getElementById('orb');
+    <div class="window-frame">
 
-        function changeState(newState) {
-            if (!orb) return;
-            // Remove all previous states
-            orb.classList.remove('sleeping', 'listening', 'thinking', 'speaking', 'error');
-            
-            // Add new state
+        <!-- ── Drag bar ─────────────────────────────── -->
+        <header class="drag-bar" id="dragBar">
+            <div class="app-identity">
+                <div class="status-dot" id="statusDot"></div>
+                <span class="app-name">Ícaro</span>
+            </div>
+            <button class="close-btn" id="closeBtn" title="Cerrar">&#x2715;</button>
+        </header>
+
+        <!-- ── Orb + label ──────────────────────────── -->
+        <section class="orb-section">
+            <div class="orb-container">
+                <!-- Wave rings: visibles solo en estado "listening" -->
+                <div class="wave-ring ring-1" id="ring1"></div>
+                <div class="wave-ring ring-2" id="ring2"></div>
+                <div class="wave-ring ring-3" id="ring3"></div>
+
+                <div id="orb" class="orb sleeping"></div>
+            </div>
+            <p class="state-label state-sleeping" id="stateLabel">En reposo</p>
+        </section>
+
+        <!-- ── Info panel ───────────────────────────── -->
+        <aside class="info-panel">
+            <div class="info-row">
+                <span class="row-tag user-tag">TÚ</span>
+                <span class="row-text" id="transcriptText">—</span>
+            </div>
+            <div class="panel-divider"></div>
+            <div class="info-row">
+                <span class="row-tag ai-tag">ÍCARO</span>
+                <span class="row-text" id="responseText">—</span>
+            </div>
+        </aside>
+
+    </div><!-- /.window-frame -->
+
+    <script>
+        // ── Element references ──────────────────────────────────────────
+        const orb            = document.getElementById('orb');
+        const stateLabel     = document.getElementById('stateLabel');
+        const statusDot      = document.getElementById('statusDot');
+        const transcriptText = document.getElementById('transcriptText');
+        const responseText   = document.getElementById('responseText');
+        const closeBtn       = document.getElementById('closeBtn');
+        const rings          = ['ring1', 'ring2', 'ring3'].map(id => document.getElementById(id));
+
+        // ── State config ────────────────────────────────────────────────
+        const ALL_STATES = ['initializing', 'sleeping', 'listening', 'thinking', 'speaking', 'error'];
+
+        const STATE_LABELS = {
+            initializing: 'Iniciando…',
+            sleeping:     'En reposo',
+            listening:    'Escuchando…',
+            thinking:     'Procesando…',
+            speaking:     'Respondiendo…',
+            error:        'Error',
+        };
+
+        const STATE_COLORS = {
+            initializing: '#4a6fa5',
+            sleeping:     '#4a9eff',
+            listening:    '#3296ff',
+            thinking:     '#32c864',
+            speaking:     '#b432ff',
+            error:        '#ff3232',
+        };
+
+        // ── Main function — called by Python via evaluate_js ────────────
+        function changeState(newState, transcript = '', response = '') {
+            // 1. Actualizar clase del orbe
+            orb.classList.remove(...ALL_STATES);
             orb.classList.add(newState);
+
+            // 2. Etiqueta de estado
+            stateLabel.textContent = STATE_LABELS[newState] ?? newState;
+            stateLabel.className   = `state-label state-${newState}`;
+
+            // 3. Status dot (color + glow)
+            const color = STATE_COLORS[newState] ?? '#888';
+            statusDot.style.background = color;
+            statusDot.style.boxShadow  = `0 0 8px ${color}`;
+
+            // 4. Wave rings — solo visibles al escuchar
+            const listening = newState === 'listening';
+            rings.forEach(r => r.classList.toggle('active', listening));
+
+            // 5. Panel de información — actualizar solo si hay texto nuevo
+            if (transcript) transcriptText.textContent = transcript;
+            if (response)   responseText.textContent   = response;
         }
 
-        // Initial state
+        // ── Close button ────────────────────────────────────────────────
+        closeBtn.addEventListener('click', () => {
+            if (window.pywebview?.api) {
+                window.pywebview.api.close();
+            }
+        });
+
+        // ── Init ────────────────────────────────────────────────────────
         changeState('sleeping');
+
+        // Exponer globalmente para que evaluate_js() lo encuentre
         window.changeState = changeState;
     </script>
 </body>

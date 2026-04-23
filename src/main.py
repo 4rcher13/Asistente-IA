@@ -9,9 +9,12 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 # Configuración básica de logs
 logging.basicConfig(
-    filename=LOG_FILE,
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler(sys.stdout)
+    ]
 )
 
 if __name__ == "__main__":

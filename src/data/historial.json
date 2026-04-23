@@ -1,0 +1,10 @@
+[
+  {
+    "role": "user",
+    "text": "hola, â¿quiã©n eres?"
+  },
+  {
+    "role": "model",
+    "text": "¡Hola! Soy Qwen, un asistente creado por Alibaba Cloud. ¿En qué puedo ayudarte hoy?"
+  }
+]
