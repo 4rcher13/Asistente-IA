@@ -1,148 +1,466 @@
-/* CSS Variables para estandarizar y facilitar modificaciones */
+/* ================================================================
+   Ícaro Widget — Premium Dark Glassmorphism UI
+   400 × 440 px frameless · WebView2 / Chromium
+   ================================================================ */
+
+/* ── Design tokens ─────────────────────────────────────────────── */
 :root {
-    /* Tamaños */
-    --orb-base-size: 100px;
-    --orb-container-size: 250px;
+    /* Orb */
+    --orb-size: 128px;
+    --ring-size: 128px;
 
-    /* Colores base para efecto glassmorphism */
-    --glass-light: rgba(255, 255, 255, 0.8);
-    --glass-mid: rgba(255, 255, 255, 0.2);
-    --glass-dark: rgba(0, 0, 0, 0.5);
+    /* Background */
+    --clr-bg: rgba(8, 10, 20, 0.94);
+    --clr-surface: rgba(255, 255, 255, 0.04);
 
-    /* Sombras base */
-    --shadow-inset-dark: inset -10px -10px 20px rgba(0, 0, 0, 0.5);
-    --shadow-inset-light: inset 10px 10px 20px rgba(255, 255, 255, 0.8);
-    --shadow-hover-glow: 0 0 30px rgba(100, 200, 255, 0.4); /* Nuevo para hover */
+    /* Borders */
+    --clr-border: rgba(255, 255, 255, 0.07);
+    --clr-border-hi: rgba(255, 255, 255, 0.13);
 
-    /* Colores específicos por estado */
-    --color-sleeping-glow: rgba(100, 200, 255, 0.2);
-    --color-listening-primary: rgba(50, 150, 255, 0.8);
-    --color-listening-secondary: rgba(50, 150, 255, 0.4);
-    --color-thinking-primary: rgba(50, 255, 100, 0.8);
-    --color-thinking-secondary: rgba(50, 255, 100, 0.4);
-    --color-speaking-primary: rgba(180, 50, 255, 0.9);
-    --color-speaking-secondary: rgba(180, 50, 255, 0.5);
-    --color-error-primary: rgba(255, 50, 50, 0.9);
-    --color-error-bg-light: rgba(255, 200, 200, 0.9);
-    --color-error-bg-mid: rgba(255, 50, 50, 0.8);
-    --color-error-bg-dark: rgba(150, 0, 0, 0.8);
+    /* Text */
+    --clr-text-hi: rgba(255, 255, 255, 0.90);
+    --clr-text-mid: rgba(255, 255, 255, 0.50);
+    --clr-text-lo: rgba(255, 255, 255, 0.27);
+
+    /* State accent colors */
+    --c-init: hsl(214, 40%, 47%);
+    --c-sleep: hsl(210, 100%, 65%);
+    --c-listen: hsl(210, 100%, 57%);
+    --c-think: hsl(142, 68%, 53%);
+    --c-speak: hsl(274, 100%, 65%);
+    --c-error: hsl(0, 100%, 58%);
+
+    /* Shadows */
+    --shadow-window: 0 32px 80px rgba(0, 0, 0, 0.65),
+        0 0 0 1px rgba(255, 255, 255, 0.05);
+    --shadow-orb: inset -6px -6px 16px rgba(0, 0, 0, 0.55),
+        inset 6px 6px 16px rgba(255, 255, 255, 0.06);
 }
 
-/* Reset y estilos base */
-* {
+/* ── Reset ─────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
 }
 
+/* ── Body ──────────────────────────────────────────────────────── */
 body {
-    background-color: transparent; /* Fondo transparente para superposición de ventana */
+    background: transparent;
     overflow: hidden;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100vh;
     width: 100vw;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* Fuente predeterminada para consistencia */
-    -webkit-font-smoothing: antialiased; /* Mejorar renderizado de fuentes */
-    -moz-osx-font-smoothing: grayscale;
-}
-
-/* Contenedor para centrar el orbe perfectamente */
-.orb-container {
-    width: var(--orb-container-size);
-    height: var(--orb-container-size);
+    height: 100vh;
     display: flex;
-    justify-content: center;
     align-items: center;
+    justify-content: center;
+    padding: 6px;
+    /* margen para sombra exterior */
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
 }
 
-/* Estilos base del Orbe */
-.orb {
-    width: var(--orb-base-size);
-    height: var(--orb-base-size);
+/* ── Window frame ──────────────────────────────────────────────── */
+.window-frame {
+    width: 100%;
+    height: 100%;
+    background: var(--clr-bg);
+    border-radius: 18px;
+    border: 1px solid var(--clr-border);
+    box-shadow: var(--shadow-window);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+}
+
+/* Shimmer line on top edge */
+.window-frame::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: linear-gradient(90deg,
+            transparent 0%,
+            var(--clr-border-hi) 30%,
+            var(--clr-border-hi) 70%,
+            transparent 100%);
+    border-radius: 18px 18px 0 0;
+    pointer-events: none;
+    z-index: 5;
+}
+
+/* ── Drag bar ──────────────────────────────────────────────────── */
+.drag-bar {
+    height: 44px;
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--clr-border);
+    -webkit-app-region: drag;
+    /* drag nativo en WebView2 */
+    user-select: none;
+}
+
+.app-identity {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    -webkit-app-region: no-drag;
+}
+
+/* Live status indicator */
+.status-dot {
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
-    /* Efecto glassmorphism base */
-    background: radial-gradient(circle at 30% 30%, var(--glass-light), var(--glass-mid), var(--glass-dark));
-    box-shadow: var(--shadow-inset-dark), var(--shadow-inset-light);
-    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); /* Transición más suave para todos los cambios */
-    /* Optimización de rendimiento para animaciones */
-    will-change: transform, box-shadow, background, border-radius, opacity, filter; 
-    display: flex; /* Añadido para posibles elementos internos futuros */
-    justify-content: center;
+    background: var(--c-sleep);
+    box-shadow: 0 0 8px var(--c-sleep);
+    transition: background 0.4s ease, box-shadow 0.4s ease;
+    flex-shrink: 0;
+}
+
+.app-name {
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: var(--clr-text-mid);
+}
+
+/* Close button */
+.close-btn {
+    -webkit-app-region: no-drag;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 1px solid var(--clr-border);
+    background: var(--clr-surface);
+    color: var(--clr-text-lo);
+    font-size: 11px;
+    cursor: pointer;
+    display: flex;
     align-items: center;
-    cursor: pointer; /* Indica que es interactuable */
+    justify-content: center;
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+    outline: none;
+    flex-shrink: 0;
 }
 
-/* Efecto al pasar el ratón (Hover) */
-.orb:hover {
-    transform: scale(1.08); /* Ligeramente más grande */
-    box-shadow: var(--shadow-inset-dark), var(--shadow-inset-light), var(--shadow-hover-glow); /* Añadir un brillo sutil */
-    filter: brightness(1.1); /* Ligeramente más brillante */
+.close-btn:hover {
+    background: rgba(255, 50, 50, 0.16);
+    border-color: rgba(255, 50, 50, 0.45);
+    color: var(--c-error);
 }
 
-/* --- ESTADOS --- */
-
-/* Durmiendo (Reposo sutil, Cyan/Blanco tenue) */
-.sleeping {
-    box-shadow: 0 0 20px var(--color-sleeping-glow), var(--shadow-inset-dark);
-    animation: breathe-sleep 4s infinite ease-in-out;
+/* ── Orb section ───────────────────────────────────────────────── */
+.orb-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding-bottom: 6px;
 }
 
-/* Escuchando (Azul Brillante) */
-.listening {
-    background: radial-gradient(circle at 30% 30%, var(--glass-light), var(--color-listening-primary), rgba(0,50,150,0.8));
-    box-shadow: 0 0 40px var(--color-listening-primary), 0 0 80px var(--color-listening-secondary), inset -10px -10px 20px rgba(0,0,0,0.3);
-    animation: pulse-listen 1.5s infinite ease-in-out;
+/* Extra room so waves don't clip */
+.orb-container {
+    position: relative;
+    width: 210px;
+    height: 210px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-/* Procesando/Pensando (Verde) */
-.thinking {
-    background: radial-gradient(circle at 30% 30%, var(--glass-light), var(--color-thinking-primary), rgba(0,150,50,0.8));
-    box-shadow: 0 0 30px var(--color-thinking-primary), 0 0 60px var(--color-thinking-secondary);
-    animation: spin-think 2s infinite linear;
+/* ── Wave rings (listening sonar effect) ───────────────────────── */
+.wave-ring {
+    position: absolute;
+    width: var(--ring-size);
+    height: var(--ring-size);
+    border-radius: 50%;
+    border: 1.5px solid rgba(50, 150, 255, 0.50);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
 }
 
-/* Respondiendo/Hablando (Morado) */
-.speaking {
-    background: radial-gradient(circle at 30% 30%, var(--glass-light), var(--color-speaking-primary), rgba(80,0,150,0.8));
-    box-shadow: 0 0 50px var(--color-speaking-primary), 0 0 100px var(--color-speaking-secondary);
-    animation: pulse-speak 0.4s infinite alternate ease-in-out;
+.wave-ring.active {
+    animation: ring-expand 2.1s infinite ease-out;
 }
 
-/* Error (Rojo) */
-.error {
-    background: radial-gradient(circle at 30% 30%, var(--color-error-bg-light), var(--color-error-bg-mid), var(--color-error-bg-dark));
-    box-shadow: 0 0 40px var(--color-error-primary);
-    animation: shake-error 0.5s ease-in-out;
+.ring-1.active {
+    animation-delay: 0.0s;
 }
 
+.ring-2.active {
+    animation-delay: 0.7s;
+}
 
-/* --- ANIMACIONES --- */
+.ring-3.active {
+    animation-delay: 1.4s;
+}
 
-@keyframes breathe-sleep {
-    0%, 100% { transform: scale(1); opacity: 0.7; }
-    50% { transform: scale(1.05); opacity: 1; }
+@keyframes ring-expand {
+    0% {
+        transform: scale(1.00);
+        opacity: 0.55;
+    }
+
+    100% {
+        transform: scale(1.80);
+        opacity: 0.00;
+    }
+}
+
+/* ── Orb ───────────────────────────────────────────────────────── */
+.orb {
+    width: var(--orb-size);
+    height: var(--orb-size);
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%,
+            rgba(255, 255, 255, 0.45),
+            rgba(255, 255, 255, 0.10) 45%,
+            rgba(0, 0, 0, 0.45));
+    box-shadow: var(--shadow-orb);
+    transition: background 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+        box-shadow 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+        filter 0.5s ease;
+    will-change: transform, box-shadow, background, filter;
+    cursor: default;
+    position: relative;
+    z-index: 1;
+}
+
+/* ── State label ───────────────────────────────────────────────── */
+.state-label {
+    margin-top: 14px;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 1.3px;
+    text-transform: uppercase;
+    color: var(--clr-text-mid);
+    transition: color 0.35s ease;
+}
+
+.state-initializing {
+    color: var(--c-init);
+}
+
+.state-sleeping {
+    color: rgba(74, 158, 255, 0.60);
+}
+
+.state-listening {
+    color: var(--c-listen);
+}
+
+.state-thinking {
+    color: var(--c-think);
+}
+
+.state-speaking {
+    color: var(--c-speak);
+}
+
+.state-error {
+    color: var(--c-error);
+}
+
+/* ── Info panel ────────────────────────────────────────────────── */
+.info-panel {
+    flex-shrink: 0;
+    background: var(--clr-surface);
+    border-top: 1px solid var(--clr-border);
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    min-height: 96px;
+}
+
+.panel-divider {
+    height: 1px;
+    background: var(--clr-border);
+    border-radius: 1px;
+}
+
+.info-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 20px;
+    overflow: hidden;
+}
+
+.row-tag {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.user-tag {
+    color: var(--c-listen);
+    background: rgba(50, 150, 255, 0.12);
+    border: 1px solid rgba(50, 150, 255, 0.22);
+}
+
+.ai-tag {
+    color: var(--c-speak);
+    background: rgba(180, 50, 255, 0.12);
+    border: 1px solid rgba(180, 50, 255, 0.22);
+}
+
+.row-text {
+    font-size: 11.5px;
+    color: var(--clr-text-hi);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0.82;
+    flex: 1;
+    min-width: 0;
+}
+
+/* ================================================================
+   Orb States
+   ================================================================ */
+
+/* Initializing — dim, slow breathe */
+.orb.initializing {
+    filter: brightness(0.6) saturate(0.5);
+    animation: breathe 3s infinite ease-in-out;
+    box-shadow: 0 0 18px rgba(74, 111, 165, 0.35), var(--shadow-orb);
+}
+
+/* Sleeping — muted cyan glow, slow breathe */
+.orb.sleeping {
+    animation: breathe 4.5s infinite ease-in-out;
+    box-shadow: 0 0 16px rgba(74, 158, 255, 0.16), var(--shadow-orb);
+}
+
+/* Listening — blue, pulsing outward */
+.orb.listening {
+    background: radial-gradient(circle at 35% 30%,
+            rgba(255, 255, 255, 0.65),
+            rgba(50, 150, 255, 0.72) 40%,
+            rgba(0, 50, 170, 0.88));
+    box-shadow:
+        0 0 32px rgba(50, 150, 255, 0.55),
+        0 0 70px rgba(50, 150, 255, 0.18),
+        var(--shadow-orb);
+    animation: pulse-listen 1.6s infinite ease-in-out;
+}
+
+/* Thinking — green, morphing rotation */
+.orb.thinking {
+    background: radial-gradient(circle at 35% 30%,
+            rgba(255, 255, 255, 0.65),
+            rgba(50, 200, 100, 0.72) 40%,
+            rgba(0, 120, 50, 0.88));
+    box-shadow:
+        0 0 28px rgba(50, 200, 100, 0.50),
+        0 0 65px rgba(50, 200, 100, 0.18);
+    animation: spin-think 2.2s infinite linear;
+}
+
+/* Speaking — purple, fast pulse */
+.orb.speaking {
+    background: radial-gradient(circle at 35% 30%,
+            rgba(255, 255, 255, 0.65),
+            rgba(180, 50, 255, 0.82) 40%,
+            rgba(80, 0, 160, 0.90));
+    box-shadow:
+        0 0 44px rgba(180, 50, 255, 0.62),
+        0 0 90px rgba(180, 50, 255, 0.22);
+    animation: pulse-speak 0.45s infinite alternate ease-in-out;
+}
+
+/* Error — red, shake once */
+.orb.error {
+    background: radial-gradient(circle at 35% 30%,
+            rgba(255, 210, 210, 0.80),
+            rgba(255, 50, 50, 0.75) 40%,
+            rgba(130, 0, 0, 0.88));
+    box-shadow: 0 0 42px rgba(255, 50, 50, 0.68);
+    animation: shake-error 0.55s ease-in-out;
+}
+
+/* ================================================================
+   Keyframe animations
+   ================================================================ */
+
+@keyframes breathe {
+
+    0%,
+    100% {
+        transform: scale(1.00);
+        opacity: 0.70;
+    }
+
+    50% {
+        transform: scale(1.06);
+        opacity: 1.00;
+    }
 }
 
 @keyframes pulse-listen {
-    0%, 100% { transform: scale(1.05); } /* Menos agresivo, más amigable */
-    50% { transform: scale(1.15); }
+
+    0%,
+    100% {
+        transform: scale(1.05);
+    }
+
+    50% {
+        transform: scale(1.16);
+    }
 }
 
 @keyframes spin-think {
-    0% { transform: scale(1.1) rotate(0deg); border-radius: 40% 60% 60% 40% / 50% 40% 60% 50%; }
-    50% { border-radius: 60% 40% 40% 60% / 60% 50% 50% 40%; }
-    100% { transform: scale(1.1) rotate(360deg); border-radius: 40% 60% 60% 40% / 50% 40% 60% 50%; }
+    0% {
+        transform: scale(1.10) rotate(0deg);
+        border-radius: 42% 58% 58% 42% / 50% 42% 58% 50%;
+    }
+
+    50% {
+        border-radius: 58% 42% 42% 58% / 60% 50% 50% 40%;
+    }
+
+    100% {
+        transform: scale(1.10) rotate(360deg);
+        border-radius: 42% 58% 58% 42% / 50% 42% 58% 50%;
+    }
 }
 
 @keyframes pulse-speak {
-    0% { transform: scale(1.2); opacity: 0.8; }
-    100% { transform: scale(1.35); opacity: 1; }
+    0% {
+        transform: scale(1.20);
+    }
+
+    100% {
+        transform: scale(1.32);
+    }
 }
 
 @keyframes shake-error {
-    0%, 100% { transform: translateX(0); }
-    20%, 60% { transform: translateX(-10px); }
-    40%, 80% { transform: translateX(10px); }
+
+    0%,
+    100% {
+        transform: translateX(0px);
+    }
+
+    20%,
+    60% {
+        transform: translateX(-8px);
+    }
+
+    40%,
+    80% {
+        transform: translateX(8px);
+    }
 }
