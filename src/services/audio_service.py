@@ -1,168 +1,90 @@
-# audio_service.py
-# Versión con calibración persistente y reintentos inteligentes
-
 import os
-import json
 import time
 import threading
 import logging
 import queue
 from typing import Optional, Callable
 
+try:
+    import numpy as np
+    _NUMPY_AVAILABLE = True
+except ImportError:
+    _NUMPY_AVAILABLE = False
+
 import pyttsx3
 import speech_recognition as sr
+import webrtcvad
+
+try:
+    import sounddevice as sd
+    SD_AVAILABLE = True
+except ImportError:
+    SD_AVAILABLE = False
+    logging.warning("sounddevice no está instalado. VAD Real desactivado.")
 
 from ..config.settings import (
     VOICE_RATE,
     TIMEOUT_SILENCIO,
     LIMITE_SEGUNDOS,
     MIC_INDEX,
+    AUDIO_RATE,
+    VAD_AGGRESSIVENESS,
 )
 
 logger = logging.getLogger(__name__)
 
-# Constantes
-_POST_SPEECH_DELAY = 0.6
-CALIBRATION_FILE = os.path.expanduser("~/.icaro_audio_config.json")
-CALIBRATION_MAX_DAYS = 7          # Recalibrar después de 7 días
-MAX_RETRIES = 3                    # Número máximo de reintentos
-RETRY_BACKOFF = [0.5, 1.0, 2.0]   # Segundos de espera entre reintentos
-
+_POST_SPEECH_DELAY = 0.15
 
 class AudioService:
-    """Maneja entrada (micrófono) y salida (voz) con calibración persistente y reintentos."""
+    """Maneja entrada (micrófono) y salida (voz) optimizado con WebRTC VAD y sounddevice."""
 
     def __init__(self, microphone=None, on_feedback: Optional[Callable[[str], None]] = None):
-        """
-        Args:
-            microphone: Instancia de micrófono (opcional).
-            on_feedback: Callback para notificar al usuario (ej. para UI).
-        """
-        self.recognizer = None
+        self.recognizer = sr.Recognizer()
         self.microphone = microphone
-        self._mic_lock = threading.Lock()
-        self._microphone_ready = False
-        self.on_feedback = on_feedback  # Para notificaciones alternativas (UI)
+        self.on_feedback = on_feedback
         
-        # Inicializar recognizer
-        try:
-            self.recognizer = sr.Recognizer()
-            self.recognizer.dynamic_energy_threshold = False
-            
-            if os.getenv("FORCE_TERMINAL") == "true":
-                logger.info("Modo FORCE_TERMINAL. Micrófono deshabilitado.")
-                self.microphone = None
-            elif self.microphone is None:
-                logger.info(f"Usando micrófono índice: {MIC_INDEX}")
-                self.microphone = sr.Microphone(device_index=MIC_INDEX)
-        except Exception as exc:
-            logger.error(f"Error inicializando audio: {exc}")
-            self.microphone = None
+        self.vad = webrtcvad.Vad(VAD_AGGRESSIVENESS) if SD_AVAILABLE else None
         
-        # Cargar calibración guardada (si existe y es reciente)
-        self._load_calibration()
-        
-        # TTS worker (persistente)
+        # TTS worker
         self._tts_queue: queue.Queue = queue.Queue()
         self._tts_worker_thread = threading.Thread(
-            target=self._tts_worker, daemon=False, name="IcaroTTS"
+            target=self._tts_worker, daemon=True, name="IcaroTTS"
         )
         self._tts_worker_thread.start()
-    
-    # ==================================================================
-    # CALIBRACIÓN PERSISTENTE
-    # ==================================================================
-    
-    def _load_calibration(self) -> None:
-        """Carga el umbral calibrado desde archivo si es válido."""
+
+    def _find_voice_id(self) -> Optional[str]:
+        """Busca la voz en español UNA sola vez."""
         try:
-            with open(CALIBRATION_FILE, "r") as f:
-                data = json.load(f)
-            
-            # Verificar antigüedad
-            timestamp = data.get("calibration_date", 0)
-            edad_dias = (time.time() - timestamp) / 86400  # segundos a días
-            
-            if edad_dias > CALIBRATION_MAX_DAYS:
-                logger.info(f"Calibración expirada (hace {edad_dias:.1f} días). Se recalibrará.")
-                return
-            
-            # Verificar que el dispositivo no ha cambiado
-            if data.get("mic_device_index") != MIC_INDEX:
-                logger.info("Dispositivo de micrófono cambiado. Se recalibrará.")
-                return
-            
-            # Cargar umbral
-            self.recognizer.energy_threshold = data["energy_threshold"]
-            self._microphone_ready = True
-            logger.info(f"Calibración cargada: umbral = {self.recognizer.energy_threshold:.0f}")
-            
-        except FileNotFoundError:
-            logger.info("No hay calibración previa. Se calibrará al primer uso.")
-        except Exception as e:
-            logger.warning(f"Error cargando calibración: {e}")
-    
-    def _save_calibration(self) -> None:
-        """Guarda el umbral calibrado actual en disco."""
-        if not self.recognizer:
-            return
-        
-        data = {
-            "energy_threshold": self.recognizer.energy_threshold,
-            "calibration_date": time.time(),
-            "mic_device_index": MIC_INDEX,
-        }
-        try:
-            with open(CALIBRATION_FILE, "w") as f:
-                json.dump(data, f, indent=2)
-            logger.debug("Calibración guardada correctamente.")
-        except Exception as e:
-            logger.warning(f"No se pudo guardar la calibración: {e}")
-    
-    def _setup_microphone(self) -> None:
-        """Calibra el micrófono SOLO si es necesario (una vez, o si expiró)."""
-        if self._microphone_ready:
-            return  # Ya calibrado
-        
-        with self._mic_lock:
-            if self._microphone_ready:
-                return  # Double-check
-            
-            if not self.microphone or not self.recognizer:
-                return
-            
-            try:
-                with self.microphone as source:
-                    logger.info("Calibrando micrófono (2 segundos en silencio)...")
-                    self.recognizer.adjust_for_ambient_noise(source, duration=2.0)
-                    
-                    # Ajustar límites por seguridad
-                    if self.recognizer.energy_threshold > 8000:
-                        self.recognizer.energy_threshold = 8000
-                    if self.recognizer.energy_threshold < 150:
-                        self.recognizer.energy_threshold = 150
-                    
-                    logger.info(f"Calibración completada. Umbral: {self.recognizer.energy_threshold:.0f}")
-                
-                self._microphone_ready = True
-                self._save_calibration()  # Guardar para futuras ejecuciones
-                
-            except Exception as exc:
-                logger.error(f"Error calibrando micrófono: {exc}")
-                self.microphone = None
-    
-    # ==================================================================
-    # TTS WORKER (sin cambios relevantes)
-    # ==================================================================
-    
+            engine = pyttsx3.init()
+            voces = engine.getProperty("voices")
+            voz_es = next(
+                (v for v in (voces or []) if any(
+                    idioma in v.name.lower() for idioma in ("spanish", "sabina", "helena")
+                )), None
+            )
+            voice_id = voz_es.id if voz_es else (voces[0].id if voces else None)
+            engine.stop()
+            return voice_id
+        except Exception as exc:
+            logger.error(f"Error buscando voz TTS: {exc}")
+            return None
+
     def _tts_worker(self) -> None:
-        """Hilo worker para síntesis de voz."""
+        """Worker asíncrono para TTS — el engine pyttsx3 se crea UNA sola vez."""
         try:
             import pythoncom
             pythoncom.CoInitialize()
         except ImportError:
             pass
-            
+
+        # Buscamos el voice_id UNA sola vez (esto es lo que demoraba 2s).
+        voice_id = None
+        try:
+            voice_id = self._find_voice_id()
+        except Exception:
+            pass
+
+        engine = None
         while True:
             try:
                 item = self._tts_queue.get(timeout=0.5)
@@ -171,143 +93,184 @@ class AudioService:
                 texto, evento = item
                 evento.clear()
                 
+                # Inicializar el engine *justo antes* de hablar.
+                # SAPI5 cachea el objeto COM, por lo que toma 0.000s después de la 1ra vez.
+                # Esto previene cuelgues del hilo y fallos silenciosos.
                 engine = None
                 try:
                     engine = pyttsx3.init()
-                    voces = engine.getProperty("voices")
-                    voz_es = next(
-                        (v for v in (voces or []) if any(idioma in v.name.lower() for idioma in ("spanish", "sabina", "helena"))),
-                        None,
-                    )
-                    if voz_es:
-                        engine.setProperty("voice", voz_es.id)
-                    elif voces:
-                        engine.setProperty("voice", voces[0].id)
-                    
+                    if voice_id:
+                        engine.setProperty("voice", voice_id)
                     engine.setProperty("rate", VOICE_RATE)
                     engine.setProperty("volume", 1.0)
-
+                    
                     engine.say(texto)
                     engine.runAndWait()
                 except Exception as exc:
                     logger.error(f"Error reproduciendo TTS: {exc}")
                 finally:
                     if engine:
-                        engine.stop()
+                        try:
+                            engine.stop()
+                        except Exception:
+                            pass
                     evento.set()
             except queue.Empty:
                 continue
-        
+
+        # Limpieza final
+        if engine:
+            try:
+                engine.stop()
+            except Exception:
+                pass
         try:
             import pythoncom
             pythoncom.CoUninitialize()
         except ImportError:
             pass
-    
+
     def hablar(self, texto: str, post_delay: float = _POST_SPEECH_DELAY) -> None:
-        """Sintetiza texto a voz."""
+        """Sintetiza texto a voz usando el queue."""
         if not texto:
             return
         texto_limpio = texto.replace("*", "").replace("#", "").replace("`", "").strip()
         if not texto_limpio:
             return
         
-        logger.info(f"Ícaro dice: {texto_limpio}")
-        evento = threading.Event()
-        self._tts_queue.put((texto_limpio, evento))
-        evento.wait(timeout=30)
+        logger.info(f"Ícaro: {texto_limpio}")
         
+        # pyttsx3 (SAPI5) se corta con textos muy largos. Dividimos por oraciones/saltos de línea.
+        import re
+        frases = [f.strip() for f in re.split(r'(?<=[.!?\n])\s+', texto_limpio) if f.strip()]
+        
+        for frase in frases:
+            evento = threading.Event()
+            self._tts_queue.put((frase, evento))
+            # Tiempo máximo de espera por cada frase
+            evento.wait(timeout=30)
+        
+
         if post_delay > 0:
             time.sleep(post_delay)
-    
-    # ==================================================================
-    # ESCUCHA CON REINTENTOS INTELIGENTES
-    # ==================================================================
-    
+
     def _notificar_usuario(self, mensaje: str) -> None:
-        """Envía notificación al usuario (por TTS o callback)."""
         if self.on_feedback:
             self.on_feedback(mensaje)
         else:
             self.hablar(mensaje)
-    
+
+    def escuchar_vad(self) -> str:
+        """
+        Escucha usando WebRTC VAD y sounddevice para latencia cero al finalizar.
+        """
+        frame_duration_ms = 30
+        frame_size = int(AUDIO_RATE * (frame_duration_ms / 1000.0))
+        
+        q = queue.Queue()
+        
+        def audio_callback(indata, frames, time_info, status):
+            # indata es float32 [-1.0, 1.0]. webrtcvad necesita int16 bytes.
+            # numpy se importa al nivel del módulo, no aquí (evita overhead por frame)
+            if _NUMPY_AVAILABLE:
+                audio_data = (indata[:, 0] * 32767).astype(np.int16).tobytes()
+            else:
+                import array
+                samples = [int(s * 32767) for s in indata[:, 0]]
+                audio_data = array.array('h', samples).tobytes()
+            q.put(audio_data)
+
+        # Buffer para guardar el audio útil
+        audio_buffer = []
+        triggered = False
+        silence_frames = 0
+        # Tolerancia: X frames de silencio = cortar escucha
+        MAX_SILENCE_FRAMES = int(TIMEOUT_SILENCIO * 1000 / frame_duration_ms) 
+        
+        logger.debug("Escuchando (VAD Real)...")
+        
+        try:
+            with sd.InputStream(samplerate=AUDIO_RATE, channels=1, dtype='float32', blocksize=frame_size, callback=audio_callback):
+                start_time = time.time()
+                
+                while True:
+                    if time.time() - start_time > LIMITE_SEGUNDOS:
+                        logger.debug("Timeout de grabación alcanzado.")
+                        break
+                        
+                    frame = q.get()
+                    
+                    try:
+                        is_speech = self.vad.is_speech(frame, AUDIO_RATE)
+                    except Exception as e:
+                        logger.error(f"VAD Error: {e}")
+                        is_speech = False
+
+                    if not triggered:
+                        if is_speech:
+                            triggered = True
+                            audio_buffer.append(frame)
+                            logger.debug("Voz detectada.")
+                    else:
+                        audio_buffer.append(frame)
+                        if not is_speech:
+                            silence_frames += 1
+                            if silence_frames > MAX_SILENCE_FRAMES:
+                                logger.debug("Fin de voz detectado.")
+                                break
+                        else:
+                            silence_frames = 0
+
+            if not audio_buffer:
+                return ""
+
+            # Reconstruir audio completo
+            raw_audio = b''.join(audio_buffer)
+            
+            # Pasar a speech_recognition
+            audio_data = sr.AudioData(raw_audio, AUDIO_RATE, 2) # 2 bytes = 16 bit
+            
+            comando = self.recognizer.recognize_google(audio_data, language="es-ES")
+            comando = comando.lower().strip()
+            logger.info(f"Usuario: '{comando}'")
+            return comando
+
+        except sr.UnknownValueError:
+            return ""
+        except Exception as e:
+            logger.error(f"Error en VAD escuchar: {e}")
+            return ""
+
+    def escuchar_legacy(self, timeout_silencio=TIMEOUT_SILENCIO, limite_segundos=LIMITE_SEGUNDOS) -> str:
+        """Fallback a speech_recognition tradicional si VAD/sounddevice falla."""
+        try:
+            if self.microphone is None:
+                self.microphone = sr.Microphone(device_index=MIC_INDEX)
+
+            with self.microphone as source:
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                self.recognizer.pause_threshold = timeout_silencio
+                audio = self.recognizer.listen(source, timeout=limite_segundos, phrase_time_limit=15)
+                comando = self.recognizer.recognize_google(audio, language="es-ES")
+                return comando.lower().strip()
+        except Exception:
+            return ""
+
     def escuchar(
         self,
         timeout_silencio: Optional[float] = None,
         limite_segundos: Optional[int] = None,
         phrase_time_limit: int = 15,
+        **kwargs,
     ) -> str:
-        """
-        Captura audio y lo reconoce con reintentos automáticos.
-        Retorna el texto reconocido o cadena vacía si falla.
-        """
-        if timeout_silencio is None:
-            timeout_silencio = TIMEOUT_SILENCIO
-        if limite_segundos is None:
-            limite_segundos = LIMITE_SEGUNDOS
-        
-        # Asegurar que el micrófono está calibrado
-        self._setup_microphone()
-        
-        if not self.microphone or not self.recognizer:
-            logger.warning("No hay micrófono disponible")
-            return ""
-        
-        for intento in range(MAX_RETRIES):
-            try:
-                with self.microphone as source:
-                    logger.debug(f"Escuchando... (intento {intento + 1}/{MAX_RETRIES})")
-                    self.recognizer.pause_threshold = timeout_silencio
-                    
-                    audio = self.recognizer.listen(
-                        source,
-                        timeout=limite_segundos,
-                        phrase_time_limit=phrase_time_limit,
-                    )
-                    
-                    # Intentar reconocer con Google
-                    comando = self.recognizer.recognize_google(audio, language="es-ES")
-                    comando = comando.lower().strip()
-                    logger.info(f"Usuario dijo: '{comando}'")
-                    return comando
-            
-            except sr.WaitTimeoutError:
-                # Silencio total -> el usuario no habló
-                logger.debug("Silencio total, no se reintenta.")
-                return ""
-            
-            except sr.UnknownValueError:
-                # No se entendió el audio (ruido, susurro, etc.)
-                if intento < MAX_RETRIES - 1:
-                    espera = RETRY_BACKOFF[intento]
-                    logger.debug(f"No entendí (intento {intento + 1}/{MAX_RETRIES}). Reintentando en {espera}s...")
-                    time.sleep(espera)
-                else:
-                    logger.warning("No se pudo entender después de varios intentos.")
-                    self._notificar_usuario("No he podido entender lo que dijiste, intenta de nuevo.")
-                    return ""
-            
-            except sr.RequestError as exc:
-                # Error de red / API de Google
-                logger.error(f"Error de conexión con Google: {exc}")
-                if intento < MAX_RETRIES - 1:
-                    espera = RETRY_BACKOFF[intento]
-                    logger.debug(f"Reintentando en {espera}s...")
-                    time.sleep(espera)
-                else:
-                    self._notificar_usuario("Tengo problemas de conexión, verifica tu internet.")
-                    return ""
-            
-            except Exception as exc:
-                # Cualquier otro error inesperado
-                logger.error(f"Error inesperado en escucha: {exc}")
-                if intento < MAX_RETRIES - 1:
-                    espera = RETRY_BACKOFF[intento]
-                    time.sleep(espera)
-                else:
-                    return ""
-        
-        return ""
+        # Compatibilidad con tests/código antiguo que usaba limite_segundo
+        if limite_segundos is None and "limite_segundo" in kwargs:
+            limite_segundos = kwargs["limite_segundo"]
+        ts = timeout_silencio if timeout_silencio is not None else TIMEOUT_SILENCIO
+        ls = limite_segundos if limite_segundos is not None else LIMITE_SEGUNDOS
+        if SD_AVAILABLE and self.vad:
+            return self.escuchar_vad()
+        return self.escuchar_legacy(timeout_silencio=ts, limite_segundos=ls)
     
     def shutdown(self) -> None:
         """Detiene el TTS worker y libera recursos."""

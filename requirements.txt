@@ -1,9 +1,32 @@
+# ─── Core ───────────────────────────────────────────────────────────────────
 python-dotenv
-SpeechRecognition
-google-generativeai
-pytest
-pyttsx3
-pyaudio
+
+# ─── IA / LLM ────────────────────────────────────────────────────────────────
+google-genai           # SDK nuevo oficial de Gemini (reemplaza google-generativeai)
+google-generativeai    # Mantenido por compatibilidad
 ollama
 rapidfuzz
+openai                 # Para integración con NVIDIA API / DeepSeek Cloud
+
+# ─── Voz / Audio ─────────────────────────────────────────────────────────────
+SpeechRecognition
+pyttsx3
+pyaudio
 webrtcvad
+sounddevice
+numpy                  # Requerido por sounddevice para el VAD callback
+
+# ─── Memoria Semántica (RAG) ──────────────────────────────────────────────────
+chromadb
+sentence-transformers
+
+# ─── Automatización GUI ───────────────────────────────────────────────────────
+pyautogui
+pyperclip
+pygetwindow
+
+# ─── MCPs / HTTP ─────────────────────────────────────────────────────────────
+requests               # Requerido por GeminiMCP y CybersecurityMCP
+
+# ─── Testing ─────────────────────────────────────────────────────────────────
+pytest

@@ -25,8 +25,9 @@ class TestMemory(unittest.TestCase):
             self.tmp_path.unlink()
 
     def test_guardar_y_cargar(self):
-        mem = self.MemoryManager()
+        mem = self.MemoryManager(buffer_size=1)  # Flush after every write
         mem.guardar("user", "Hola")
+        mem.flush()  # Ensure data is written to disk
         
         # Simular reinicio leyendo desde disco
         mem2 = self.MemoryManager()

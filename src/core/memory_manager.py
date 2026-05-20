@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from ..config.settings import HISTORY_FILE, MAX_HISTORY
+from .vector_memory import VectorMemory
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +30,17 @@ class MemoryManager:
         
         # Registrar guardado al salir
         atexit.register(self.flush)
+        atexit.register(self._shutdown_vector)
         
         # Hilo daemon de flush periódico (sin timers recursivos)
         threading.Thread(target=self._flush_worker, daemon=True).start()
+
+        # Memoria Vectorial
+        try:
+            self.vector_db = VectorMemory()
+        except Exception as e:
+            logger.error(f"No se pudo iniciar VectorMemory: {e}")
+            self.vector_db = None
 
     def _leer_archivo(self):
         """Lee el historial del disco de forma segura en la inicialización."""
@@ -116,6 +125,27 @@ class MemoryManager:
             self.pending_changes += 1
             # Decidir si hacer flush dentro del lock para evitar race condition
             should_flush = self.pending_changes >= self.buffer_size
-
+        
         if should_flush:
             self.flush()
+
+        # Guardar en memoria vectorial (fuera del lock principal)
+        if self.vector_db:
+            try:
+                # No bloqueamos el path crítico, pero VectorMemory suele ser rápido
+                self.vector_db.add_memory(rol, texto_final)
+            except Exception as e:
+                logger.debug(f"Error asíncrono en VectorMemory: {e}")
+
+    def get_recent(self, n: int = 5):
+        """Retorna las últimas n interacciones del historial."""
+        with self.lock:
+            return list(self.historial[-n:])
+
+    def _shutdown_vector(self) -> None:
+        """Detiene VectorMemory antes del shutdown del intérprete (evita errores atexit)."""
+        if self.vector_db and hasattr(self.vector_db, "shutdown"):
+            try:
+                self.vector_db.shutdown(wait=False)
+            except Exception as e:
+                logger.debug(f"Shutdown VectorMemory: {e}")

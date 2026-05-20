@@ -19,14 +19,16 @@ def main():
     # Asegurar existencia de carpeta logs
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Configurar logging según flag
+    # Configurar logging según flag (UTF-8 para evitar errores cp1252 en Windows)
     log_level = logging.DEBUG if args.debug else logging.INFO
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setStream(open(sys.stdout.fileno(), mode='w', encoding='utf-8', closefd=False))
     logging.basicConfig(
         level=log_level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler(LOG_FILE),
-            logging.StreamHandler(sys.stdout)
+            logging.FileHandler(LOG_FILE, encoding='utf-8'),
+            stream_handler
         ]
     )
 

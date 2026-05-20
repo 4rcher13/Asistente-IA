@@ -5,6 +5,7 @@ import time
 import datetime
 import subprocess
 from typing import Dict, Any, Optional
+from ..core.event_bus import bus, EventType
 
 pyautogui = None
 pyperclip = None
@@ -34,6 +35,13 @@ ALLOWED_APPS: Dict[str, str] = {
 class ActionService:
     """Ejecuta acciones en el sistema operativo sin lógica de cerebro ni audio."""
     
+    def __init__(self):
+        self.obsidian_mcp = None
+
+    def set_obsidian_mcp(self, mcp):
+        """Inyección de dependencia para acciones de conocimiento."""
+        self.obsidian_mcp = mcp
+
     def execute(self, config: Dict[str, Any]) -> str:
         """
         Recibe un diccionario con intent y los argumentos necesarios,
@@ -44,8 +52,10 @@ class ActionService:
         if not intent:
             return ""
             
+        bus.publish(EventType.ACTION_STARTED, config)
+        
         if intent == "buscar_google":
-            return self._buscar_google(config.get("target", ""))
+            res = self._buscar_google(config.get("target", ""))
         elif intent == "control_volumen":
             return self._control_volumen(config.get("target", ""))
         elif intent == "reproducir_youtube":
@@ -64,8 +74,14 @@ class ActionService:
             return self._suspender_equipo()
         elif intent == "hacer_click":
             return self._hacer_click()
+        elif intent == "guardar_en_obsidian":
+            return self._guardar_en_obsidian(config)
             
-        return f"Acción desconocida: {intent}"
+        else:
+            res = f"Acción desconocida: {intent}"
+            
+        bus.publish(EventType.ACTION_COMPLETED, {"intent": intent, "result": res})
+        return res
 
     def _abrir_aplicacion(self, nombre_app: Optional[str]) -> str:
         """Abre una aplicación de forma segura usando una whitelist."""
@@ -186,3 +202,15 @@ class ActionService:
             # Comando de sistema seguro
             subprocess.run(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"], shell=False)
         return "equipo suspendido"
+
+    def _guardar_en_obsidian(self, config: Dict[str, Any]) -> str:
+        """Guarda conocimiento crítico en el vault de Obsidian."""
+        if not self.obsidian_mcp:
+            return "Error: Obsidian no está configurado."
+        
+        titulo = config.get("target", "Nueva_Nota_Icaro")
+        contenido = config.get("contenido_nota", config.get("respuesta", ""))
+        
+        if self.obsidian_mcp.create_or_append_note(titulo, contenido):
+            return f"He guardado la información en tu Obsidian como '{titulo}'."
+        return "No pude escribir en Obsidian. Verifica la ruta en el .env."

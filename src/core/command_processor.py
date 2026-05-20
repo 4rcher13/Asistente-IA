@@ -73,7 +73,7 @@ class CommandProcessor:
         result = " ".join(corrected)
         if result != text:
             engine = "rapidfuzz" if self.use_rapidfuzz else "difflib"
-            logger.debug(f"Corrección fonética ({engine}): '{text}' → '{result}'")
+            logger.debug(f"Correccion fonetica ({engine}): '{text}' -> '{result}'")
         return result
 
     def _route(self, clean: str) -> dict:

@@ -7,3 +7,4 @@ data/historial.json
 data/*.tmp
 .venv/
 .pytest_cache/
+data/chroma_db/

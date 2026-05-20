@@ -1,10 +1,13 @@
 import time
 import logging
 import re
+import threading
+from datetime import datetime
 from enum import Enum, auto
 from typing import Optional
 
 from ..config.settings import WAKE_WORD
+from .vector_memory import _load_embedding_model_background
 from .memory_manager import MemoryManager
 from .command_processor import CommandProcessor
 from .telemetry import Telemetry
@@ -13,6 +16,8 @@ from ..services.action_service import ActionService
 from ..services.ai_service import AIService
 from ..utils.text_utils import normalize_text
 from .protocols import AudioProtocol, AIProtocol, MemoryProtocol, ActionProtocol, TelemetryProtocol
+from .event_bus import bus, EventType
+from .plugin_loader import plugin_loader
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +50,10 @@ class Icaro:
         telemetry_service: Optional[TelemetryProtocol] = None,
         inactivity_timeout: float = 30.0  # nuevo: tiempo de inactividad configurable
     ):
-        # 1. Telemetría y estado
+        # 1. Cargar Plugins y Skills
+        plugin_loader.load_all()
+
+        # 2. Telemetría y estado
         self.telemetry = telemetry_service or Telemetry()
         self._state = IcaroState.INITIALIZING
         self._emit_state()  # emite "initializing"
@@ -54,13 +62,19 @@ class Icaro:
         self.silent = silent
         self.no_ai = no_ai
         self.inactivity_timeout = inactivity_timeout
-        self.last_interaction_time = time.time()   # ← mover el timestamp aquí
+        self.last_interaction_time = time.time()
+
+        # Iniciar carga pesada del modelo de embeddings en background
+        threading.Thread(target=_load_embedding_model_background, daemon=True, name="EmbeddingsLoader").start()
 
         # 2. Servicios
         self.memory = memory_manager or MemoryManager()
         self.audio = audio_service or AudioService()
         self.action = action_service or ActionService()
         self.ai = ai_service or AIService(self.memory)
+
+        # Inyectar conectores necesarios para acciones
+        self.action.set_obsidian_mcp(getattr(self.ai, 'obsidian_mcp', None))
 
         # 3. Deshabilitar IA si se solicita (usando método formal)
         if self.no_ai:
@@ -92,6 +106,7 @@ class Icaro:
             return
         self._state = new_state
         self._emit_state(transcript, response)
+        bus.publish(EventType.STATE_CHANGED, {"state": new_state.name, "transcript": transcript, "response": response})
 
     # -------------------- Wake word helpers optimizados --------------------
     def _contains_wake_word(self, command: str) -> bool:
@@ -111,6 +126,31 @@ class Icaro:
         """Habla solo si el modo silencioso está desactivado."""
         if not self.silent and text:
             self.audio.hablar(text)
+
+    def _get_greeting(self) -> str:
+        """Devuelve un saludo basado en la hora actual con formato de 12 horas y minutos."""
+        now = datetime.now()
+        hour = now.hour
+        minute = now.minute
+
+        if 5 <= hour < 12:
+            saludo = "Buenos días"
+        elif 12 <= hour < 19:
+            saludo = "Buenas tardes"
+        else:
+            saludo = "Buenas noches"
+
+        hour_12 = hour % 12 or 12
+        periodo = "de la mañana" if hour < 12 else ("de la tarde" if hour < 19 else "de la noche")
+
+        if minute == 0:
+            hora_str = f"las {hour_12} en punto {periodo}"
+        elif minute == 30:
+            hora_str = f"las {hour_12} y media {periodo}"
+        else:
+            hora_str = f"las {hour_12} y {minute} minutos {periodo}"
+
+        return f"{saludo}, son {hora_str} ¿en qué le puedo ayudar?"
 
     # -------------------- Deshabilitar IA (sin hackear atributos internos) --------------------
     def _disable_ai_service(self) -> None:
@@ -135,8 +175,49 @@ class Icaro:
             self._transition_to(IcaroState.SPEAKING, response="Entrando en reposo.")
             self._speak("Entrando en reposo.")
             self._transition_to(IcaroState.SLEEPING)
+            # Resumir la sesión y guardarla en ChromaDB al dormir
+            self._summarize_session_async(wait=False)
+
+    def _summarize_session_async(self, wait: bool = False) -> None:
+        """Genera un resumen de la sesión en segundo plano y lo guarda en ChromaDB."""
+        def run():
+            try:
+                historial = self.memory.cargar()
+                if not historial:
+                    return
+                
+                logger.info("Generando resumen de sesión en background...")
+                resumen = self.ai.summarize_session(historial)
+                if resumen:
+                    logger.info(f"Sesión resumida con éxito: {resumen}")
+                    if hasattr(self.memory, 'vector_db') and self.memory.vector_db:
+                        # Guardamos con un rol especial o 'model' para indicar que es conocimiento resumido
+                        self.memory.vector_db.add_memory(
+                            role="model",
+                            text=f"Resumen de conversación previa: {resumen}",
+                            intent="resumen_sesion"
+                        )
+                else:
+                    logger.info("No se generó resumen de sesión (nada relevante o vacío).")
+            except Exception as e:
+                logger.error(f"Error en resumen asíncrono de sesión: {e}")
+
+        t = threading.Thread(target=run, daemon=True, name="SessionSummarizer")
+        t.start()
+        if wait:
+            # Esperar a que finalice la llamada (ej. en apagado), con un timeout de 4 segundos
+            t.join(timeout=4.0)
 
     # -------------------- Ciclo de procesamiento de un comando --------------------
+    def _save_memory_async(self, role: str, text: str) -> None:
+        """Guarda en memoria de forma no bloqueante para no ralentizar el path crítico."""
+        threading.Thread(
+            target=self.memory.guardar,
+            args=(role, text),
+            daemon=True,
+            name="MemSave"
+        ).start()
+
     def _process_command(self, command: str) -> None:
         """
         Procesa un comando ya confirmado (wake word removido si es necesario).
@@ -145,16 +226,17 @@ class Icaro:
         # Mostrar que estamos pensando
         self._transition_to(IcaroState.THINKING, transcript=command)
 
-        # Guardar en memoria lo que dijo el usuario
-        self.memory.guardar("user", command)
+        # Guardar en memoria lo que dijo el usuario (no bloqueante)
+        self._save_memory_async("user", command)
 
         # Obtener respuesta del procesador (puede ser vacía si no_ai y comando desconocido)
         response = self.processor.process(command)
 
         if response:
+            bus.publish(EventType.RESPONSE_READY, response)
             self._transition_to(IcaroState.SPEAKING, transcript=command, response=response)
             self._speak(response)
-            self.memory.guardar("model", response)
+            self._save_memory_async("model", response)
         else:
             logger.warning(f"Sin respuesta para: '{command}'")
             # Si no hay respuesta, pasamos directamente a LISTENING (sin hablar)
@@ -168,11 +250,13 @@ class Icaro:
         """Bucle principal con máquina de estados explícita."""
         # Mensaje de bienvenida (solo si no silent)
         if not self.silent:
-            time.sleep(2.0)  # todavía se necesita para el widget UDP
-            self._transition_to(IcaroState.SPEAKING, response="Sistemas inicializados en modo nativo.")
-            self._speak("Sistemas inicializados en modo nativo.")
+            time.sleep(0.3)  # Solo lo necesario para que el widget UDP esté listo
+            greeting = self._get_greeting()
+            self._transition_to(IcaroState.SPEAKING, response=greeting)
+            self._speak(greeting)
 
-        self._transition_to(IcaroState.SLEEPING)
+        self._transition_to(IcaroState.LISTENING)
+        self.last_interaction_time = time.time()
 
         try:
             while self.running:
@@ -198,9 +282,11 @@ class Icaro:
                     logger.info(f"Interpretado: '{command}'")
 
                     # --- Comandos de salida (hardcoded) ---
-                    if any(p in command for p in ("salir por completo", "apagar asistente", "terminar", "salir")):
-                        self._transition_to(IcaroState.SPEAKING, response="Apagando módulos. Hasta la próxima.")
-                        self._speak("Apagando módulos. Hasta la próxima.")
+                    if any(p in command for p in ("adiós", "salir", "a dios", "hasta luego", "hasta pronto")):
+                        self._transition_to(IcaroState.SPEAKING, response="Hasta pronto.")
+                        self._speak("Hasta pronto.")
+                        # Resumir la sesión y guardarla antes de apagar
+                        self._summarize_session_async(wait=True)
                         self.detener()
                         break
 
@@ -236,5 +322,7 @@ class Icaro:
             logger.info("Apagado forzado por el usuario (Ctrl+C).")
             self.detener()
         finally:
+            if hasattr(self.audio, "shutdown"):
+                self.audio.shutdown()
             self.telemetry.close()
-            logger.info("Sistemas fuera de línea.")
+            logger.info("Sistemas fuera. Apagado")

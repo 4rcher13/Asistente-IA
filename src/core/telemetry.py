@@ -2,7 +2,7 @@
 Telemetría UDP — Envía eventos de estado al widget UI de Ícaro.
 
 Protocolo: "estado|transcripcion|respuesta"
-  - Separado por pipes (|), máximo 200 chars por campo.
+  - Separado por pipes (|), máximo 4000 chars por campo para soportar textos largos.
   - El receptor es ui/widget.py escuchando en 127.0.0.1:5005.
 
 Estados válidos: initializing | sleeping | listening | thinking | speaking | error
@@ -12,7 +12,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-_MAX_FIELD_LEN = 200
+_MAX_FIELD_LEN = 4000
 _UDP_ADDR = ("127.0.0.1", 5005)
 
 
@@ -79,7 +79,12 @@ class Telemetry:
             return
         try:
             payload = f"{state}|{_sanitize(transcript)}|{_sanitize(response)}"
-            self._sock.sendto(payload.encode("utf-8"), self._addr)
+            # IMPORTANTE: Aumentamos el buffer pero si el payload supera el límite UDP (65507),
+            # truncamos el string antes de enviarlo.
+            encoded = payload.encode("utf-8")
+            if len(encoded) > 65000:
+                encoded = encoded[:65000]
+            self._sock.sendto(encoded, self._addr)
         except BlockingIOError:
             pass  # El socket en modo non-blocking puede lanzar esto; es seguro ignorar.
         except Exception as exc:

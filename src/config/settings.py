@@ -29,9 +29,17 @@ LOGS_DIR.mkdir(exist_ok=True)
 # Seguridad y API keys
 # ----------------------------------------------------------------------
 GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
+GITHUB_TOKEN: Optional[str] = os.getenv("GITHUB_TOKEN")          # Token para GitHub MCP
+
 if not GEMINI_API_KEY:
     print("Error: GEMINI_API_KEY no está definida en el entorno o archivo .env")
-    sys.exit(1)  # Falla rápido y con mensaje claro
+    sys.exit(1)
+
+# RUTAS DE CONOCIMIENTO EXTERNO Y PERFIL
+OBSIDIAN_VAULT_PATH: Optional[str] = os.getenv("OBSIDIAN_VAULT_PATH")
+USER_NAME: str = os.getenv("USER_NAME", "Jesús")
+NVIDIA_API_KEY: Optional[str] = os.getenv("NVIDIA_API_KEY")
+
 
 # ----------------------------------------------------------------------
 # Palabras de activación (evitar falsos positivos)
@@ -42,7 +50,7 @@ WAKE_WORD: Set[str] = {"ícaro", "icaro", "hícaro", "e caro", "y claro", "y cre
 # ----------------------------------------------------------------------
 # Modelos de IA
 # ----------------------------------------------------------------------
-MODELO_LOCAL: str = os.getenv("MODELO_OLLAMA", "qwen2.5:3b")  # permite override vía entorno
+MODELO_LOCAL: str = os.getenv("MODELO_OLLAMA", "qwen2.5:1.5b")  # 1.5b es ~2x más rápido en CPU
 # Verificación opcional (se puede hacer en tiempo de ejecución)
 # Por ahora solo se asigna un valor por defecto configurable.
 
@@ -95,7 +103,7 @@ def check_dependencies() -> None:
         import webrtcvad
         import speech_recognition
         import ollama
-        import google.generativeai as genai
+        import google.genai  # SDK oficial actual (google-genai)
     except ImportError as e:
         print(f"Falta una dependencia: {e}")
         sys.exit(1)
