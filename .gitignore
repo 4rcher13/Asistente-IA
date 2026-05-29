@@ -1,10 +1,44 @@
-.env
+# ═══════════════════════════════════════════════════════════════════════════════
+# SEGURIDAD: Archivos privados que NUNCA deben ser commiteados
+# ═══════════════════════════════════════════════════════════════════════════════
+.env                  # Variables de entorno con secretos
+.env.local            # Configuración local específica
+.env.*.local          # Configuraciones por entorno
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Python
+# ═══════════════════════════════════════════════════════════════════════════════
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Archivos de datos sensibles o temporales
+# ═══════════════════════════════════════════════════════════════════════════════
 logs/
 *.log
+debug-*.log
 data/historial.json
 data/*.tmp
-.venv/
-.pytest_cache/
 data/chroma_db/
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# IDE & Editor
+# ═══════════════════════════════════════════════════════════════════════════════
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
