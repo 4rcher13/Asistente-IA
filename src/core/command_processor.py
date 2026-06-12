@@ -24,9 +24,11 @@ class CommandProcessor:
     Pipeline unidireccional: normalizar → enrutar → ejecutar → responder
     """
     
-    def __init__(self, ai_service, action_service, use_rapidfuzz: bool = False):
+    def __init__(self, ai_service, action_service, planner=None, executor=None, use_rapidfuzz: bool = False):
         self.ai = ai_service
         self.action = action_service
+        self.planner = planner
+        self.executor = executor
         self.use_rapidfuzz = use_rapidfuzz and RAPIDFUZZ_AVAILABLE
 
     def process(self, comando: str) -> str:
@@ -38,7 +40,7 @@ class CommandProcessor:
         intent_data = self._route(clean)
         
         # Etapa 3: Ejecutar acción si aplica
-        respuesta = self._execute(intent_data)
+        respuesta = self._execute(intent_data, clean)
         
         # Etapa 4: Postprocesar (retornar texto final para el audio)
         return respuesta
@@ -79,14 +81,24 @@ class CommandProcessor:
         """Delega a la IA para clasificar la intención del comando."""
         return self.ai.route_command(clean)
 
-    def _execute(self, intent_data: dict) -> str:
+    def _execute(self, intent_data: dict, command_text: str = "") -> str:
         """Ejecuta la acción del sistema operativo si hay intent, devuelve la respuesta hablada."""
         respuesta_hablada = intent_data.get("respuesta", "Entendido.")
+        intent = intent_data.get("intent")
         
-        if intent_data.get("intent"):
+        if intent == "plan_task" and self.planner and self.executor:
+            logger.info("Enrutando a TaskPlanner para plan_task...")
+            steps = self.planner.create_plan(command_text)
+            if steps:
+                resultado_accion = self.executor.execute_plan(steps)
+                return resultado_accion
+            else:
+                return "No pude generar un plan válido para esa tarea."
+        
+        if intent:
             resultado_accion = self.action.execute(intent_data)
             # Comandos donde el resultado de la acción ES la respuesta hablada
-            if intent_data.get("intent") in ("dar_hora_fecha", "ver_pantalla"):
+            if intent in ("dar_hora_fecha", "ver_pantalla"):
                 return resultado_accion
             if resultado_accion and not resultado_accion.startswith("Acción desconocida"):
                 logger.info(f"Sistema: {resultado_accion}")
