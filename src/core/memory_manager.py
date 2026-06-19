@@ -142,6 +142,52 @@ class MemoryManager:
         with self.lock:
             return list(self.historial[-n:])
 
+    def guardar_evento(self, source: str, event_type: str, content: str) -> None:
+        """
+        Guarda un evento del sistema en memoria compartida.
+        
+        Los eventos se distinguen de user/model usando role="system" para poder
+        filtrar después. Se guardan también en VectorMemory para recuperación RAG.
+        
+        Args:
+            source: Componente que genera el evento (ej: "ActionService")
+            event_type: Tipo de evento (ej: "action_executed")
+            content: Mensaje del evento (puede ser texto largo)
+        """
+        content_seguro = self._redactar_sensible(content)
+        content_final = (
+            f"[Largo omitido: {content_seguro[:50]}...]"
+            if len(content_seguro) > 1000
+            else content_seguro
+        )
+        
+        should_flush = False
+        with self.lock:
+            self.historial.append({
+                "role": "system",
+                "source": source,
+                "event_type": event_type,
+                "text": content_final
+            })
+            
+            if len(self.historial) > self.max_items:
+                self.historial = self.historial[-self.max_items:]
+            
+            self.pending_changes += 1
+            should_flush = self.pending_changes >= self.buffer_size
+        
+        if should_flush:
+            self.flush()
+        
+        # Guardar en memoria vectorial con metadata (fuera del lock)
+        if self.vector_db:
+            try:
+                # Incluir source y event_type en el texto para búsqueda semántica
+                contexto = f"[{source}|{event_type}] {content_final}"
+                self.vector_db.add_memory("system", contexto)
+            except Exception as e:
+                logger.debug(f"Error asíncrono en VectorMemory guardar_evento: {e}")
+
     def _shutdown_vector(self) -> None:
         """Detiene VectorMemory antes del shutdown del intérprete (evita errores atexit)."""
         if self.vector_db and hasattr(self.vector_db, "shutdown"):

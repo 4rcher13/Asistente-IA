@@ -67,10 +67,22 @@ def test_integration_flow(tmp_path):
         # Verify memory
         history = memory.cargar()
         assert len(history) >= 2
-        assert history[0]["role"] == "user"
-        assert "abre notepad" in history[0]["text"]
-        assert history[1]["role"] == "model"
-        assert "Abriendo bloc de notas" in history[1]["text"]
+        
+        # Buscar mensajes user y model en el historial (puede haber eventos del sistema intercalados)
+        user_msgs = [h for h in history if h["role"] == "user"]
+        model_msgs = [h for h in history if h["role"] == "model"]
+        system_msgs = [h for h in history if h["role"] == "system"]
+        
+        # Verificar que tenemos ambos tipos de mensajes
+        assert len(user_msgs) >= 1, "Debe haber al menos un mensaje del usuario"
+        assert len(model_msgs) >= 1, "Debe haber al menos un mensaje del modelo"
+        
+        # Verificar contenido
+        assert "abre notepad" in user_msgs[0]["text"]
+        assert "Abriendo bloc de notas" in model_msgs[0]["text"]
+        
+        # Verificar que se registraron eventos del sistema (nueva funcionalidad)
+        assert len(system_msgs) >= 1, "Debe haber eventos del sistema registrados (ActionService)"
 
 
 def test_normalization_integration():

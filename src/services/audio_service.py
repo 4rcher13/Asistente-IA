@@ -3,6 +3,7 @@ import time
 import threading
 import logging
 import queue
+from pathlib import Path
 from typing import Optional, Callable
 
 try:
@@ -22,6 +23,13 @@ except ImportError:
     SD_AVAILABLE = False
     logging.warning("sounddevice no está instalado. VAD Real desactivado.")
 
+try:
+    from gtts import gTTS
+    GTTS_AVAILABLE = True
+except ImportError:
+    GTTS_AVAILABLE = False
+    logging.warning("gTTS no está instalado. Fallback a pyttsx3 activo.")
+
 from ..config.settings import (
     VOICE_RATE,
     TIMEOUT_SILENCIO,
@@ -32,6 +40,33 @@ from ..config.settings import (
 )
 
 logger = logging.getLogger(__name__)
+
+# B4 FIX: ruta absoluta calculada una vez, independiente del cwd del proceso
+_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+_TTS_TEMP_PATH = str(_DATA_DIR / "tts_temp.mp3")
+
+def play_mp3_winmm(filepath: str) -> bool:
+    """Reproduce un archivo MP3 en Windows usando MCI (winmm.dll) esperando a que termine."""
+    import platform
+    if platform.system() != "Windows":
+        return False
+    try:
+        import ctypes
+        import os
+        if not os.path.exists(filepath):
+            return False
+        path_clean = os.path.abspath(filepath).replace('\\', '/')
+        winmm = ctypes.windll.winmm
+        winmm.mciSendStringW("close mymp3", None, 0, 0)
+        res_open = winmm.mciSendStringW(f'open "{path_clean}" type mpegvideo alias mymp3', None, 0, 0)
+        if res_open != 0:
+            return False
+        res_play = winmm.mciSendStringW("play mymp3 wait", None, 0, 0)
+        winmm.mciSendStringW("close mymp3", None, 0, 0)
+        return res_play == 0
+    except Exception as e:
+        logger.error(f"Error en play_mp3_winmm: {e}")
+        return False
 
 _POST_SPEECH_DELAY = 0.15
 
@@ -70,7 +105,7 @@ class AudioService:
             return None
 
     def _tts_worker(self) -> None:
-        """Worker asíncrono para TTS — el engine pyttsx3 se crea UNA sola vez."""
+        """Worker asíncrono para TTS con Google TTS y fallback offline pyttsx3."""
         try:
             import pythoncom
             pythoncom.CoInitialize()
@@ -84,6 +119,10 @@ class AudioService:
         except Exception:
             pass
 
+        # B4 FIX: usar ruta absoluta precalculada a nivel de módulo
+        _DATA_DIR.mkdir(parents=True, exist_ok=True)
+        temp_audio_path = _TTS_TEMP_PATH
+
         engine = None
         while True:
             try:
@@ -93,28 +132,47 @@ class AudioService:
                 texto, evento = item
                 evento.clear()
                 
-                # Inicializar el engine *justo antes* de hablar.
-                # SAPI5 cachea el objeto COM, por lo que toma 0.000s después de la 1ra vez.
-                # Esto previene cuelgues del hilo y fallos silenciosos.
-                engine = None
-                try:
-                    engine = pyttsx3.init()
-                    if voice_id:
-                        engine.setProperty("voice", voice_id)
-                    engine.setProperty("rate", VOICE_RATE)
-                    engine.setProperty("volume", 1.0)
-                    
-                    engine.say(texto)
-                    engine.runAndWait()
-                except Exception as exc:
-                    logger.error(f"Error reproduciendo TTS: {exc}")
-                finally:
-                    if engine:
-                        try:
-                            engine.stop()
-                        except Exception:
-                            pass
-                    evento.set()
+                gtts_success = False
+                if GTTS_AVAILABLE:
+                    try:
+                        logger.debug(f"Generando Google TTS para: {texto}")
+                        tts = gTTS(text=texto, lang="es", slow=False)
+                        
+                        # Limpiar archivo anterior si existe
+                        if os.path.exists(temp_audio_path):
+                            try:
+                                os.remove(temp_audio_path)
+                            except Exception:
+                                pass
+                                
+                        tts.save(temp_audio_path)
+                        # Reproducir con MCI winmm
+                        if play_mp3_winmm(temp_audio_path):
+                            gtts_success = True
+                    except Exception as e:
+                        logger.warning(f"Google TTS falló, usando fallback offline pyttsx3: {e}")
+                
+                if not gtts_success:
+                    # Inicializar el engine pyttsx3 justo antes de hablar (fallback)
+                    engine = None
+                    try:
+                        engine = pyttsx3.init()
+                        if voice_id:
+                            engine.setProperty("voice", voice_id)
+                        engine.setProperty("rate", VOICE_RATE)
+                        engine.setProperty("volume", 1.0)
+                        
+                        engine.say(texto)
+                        engine.runAndWait()
+                    except Exception as exc:
+                        logger.error(f"Error reproduciendo con pyttsx3: {exc}")
+                    finally:
+                        if engine:
+                            try:
+                                engine.stop()
+                            except Exception:
+                                pass
+                evento.set()
             except queue.Empty:
                 continue
 
@@ -122,6 +180,12 @@ class AudioService:
         if engine:
             try:
                 engine.stop()
+            except Exception:
+                pass
+        # Eliminar archivo temporal al apagar
+        if os.path.exists(temp_audio_path):
+            try:
+                os.remove(temp_audio_path)
             except Exception:
                 pass
         try:
@@ -140,9 +204,10 @@ class AudioService:
         
         logger.info(f"Ícaro: {texto_limpio}")
         
-        # pyttsx3 (SAPI5) se corta con textos muy largos. Dividimos por oraciones/saltos de línea.
+        # B13 FIX: dividir por cualquier separador de oración o salto de línea
+        # Soporta tanto ". " como ".\n" y variantes mixtas
         import re
-        frases = [f.strip() for f in re.split(r'(?<=[.!?\n])\s+', texto_limpio) if f.strip()]
+        frases = [f.strip() for f in re.split(r'(?<=[.!?])\s+|\n+', texto_limpio) if f.strip()]
         
         for frase in frases:
             evento = threading.Event()

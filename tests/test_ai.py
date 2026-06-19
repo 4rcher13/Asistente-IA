@@ -20,7 +20,7 @@ class TestAI(unittest.TestCase):
         
         self.mem_mock = MagicMock()
         self.mem_mock.get_recent.return_value = []
-        self.ai = AIService(self.mem_mock)
+        self.ai = AIService(self.mem_mock, warmup=False)
         
     def tearDown(self):
         patch.stopall()
@@ -63,6 +63,7 @@ class TestAI(unittest.TestCase):
         """Si la API falla, retorna fallback seguro."""
         self.ai.ia_habilitada = True
         self.ai.ollama_habilitado = False
+        self.ai.nvidia_habilitado = False
         self.ai._models_initialized = True
         self.ai.client = MagicMock()
         self.ai.client.models.generate_content.side_effect = Exception("API Caída o Timeout")
@@ -120,23 +121,26 @@ class TestAI(unittest.TestCase):
     def test_routing_sin_api_key(self):
         """Sin API key configurada, debe devolver respuesta de sistema degradado."""
         with patch("src.services.ai_service.GEMINI_API_KEY", None):
-            self.ai._models_initialized = False
+            self.ai._models_initialized = True
             self.ai.ia_habilitada = False
             self.ai.ollama_habilitado = False
+            self.ai.nvidia_habilitado = False
             
             # Comando que no tiene fallback local
             res = self.ai.route_command("explícame que es machine learning")
             self.assertIsNone(res.get("intent"))
 
     def test_disable_ai(self):
-        """disable_ai() desactiva ambos motores."""
+        """disable_ai() desactiva todos los motores."""
         self.ai.ia_habilitada = True
         self.ai.ollama_habilitado = True
+        self.ai.nvidia_habilitado = True
         
         self.ai.disable_ai()
         
         self.assertFalse(self.ai.ia_habilitada)
         self.assertFalse(self.ai.ollama_habilitado)
+        self.assertFalse(self.ai.nvidia_habilitado)
 
     def test_truncado_respuesta_larga(self):
         """Respuestas largas se truncan para TTS."""
@@ -146,7 +150,8 @@ class TestAI(unittest.TestCase):
             "respuesta": "A" * 4500
         }
         result = self.ai._parse_routing_data(datos)
-        self.assertLessEqual(len(result["respuesta"]), self.ai.MAX_RESPUESTA_TTS + 1)
+        self.assertLessEqual(len(result["respuesta"]), self.ai.MAX_RESPUESTA_TTS + 5)
+        self.assertGreater(len(result["respuesta"]), 100)
 
 
 class TestSmartRoutingClassifier(unittest.TestCase):

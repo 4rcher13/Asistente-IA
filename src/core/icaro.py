@@ -9,9 +9,12 @@ from typing import Optional
 from ..config.settings import WAKE_WORD
 from .vector_memory import _load_embedding_model_background
 from .memory_manager import MemoryManager
+from .shared_memory import set_shared_memory
 from .command_processor import CommandProcessor
+from .planner import TaskPlanner
 from .telemetry import Telemetry
 from ..services.audio_service import AudioService
+from ..services.execution_service import ExecutionService
 from ..services.action_service import ActionService
 from ..services.ai_service import AIService
 from ..utils.text_utils import normalize_text
@@ -69,19 +72,34 @@ class Icaro:
 
         # 2. Servicios
         self.memory = memory_manager or MemoryManager()
+        
+        # Registrar memoria compartida (singleton) para acceso global desde MCPs y servicios
+        set_shared_memory(self.memory)
+        
         self.audio = audio_service or AudioService()
         self.action = action_service or ActionService()
         self.ai = ai_service or AIService(self.memory)
 
         # Inyectar conectores necesarios para acciones
         self.action.set_obsidian_mcp(getattr(self.ai, 'obsidian_mcp', None))
+        self.action.set_ai_service(self.ai)  # Para visión multimodal
 
         # 3. Deshabilitar IA si se solicita (usando método formal)
         if self.no_ai:
             self._disable_ai_service()
 
+        # 3.5. Task Planner y Execution Service
+        self.planner = TaskPlanner(self.ai)
+        self.executor = ExecutionService(self.action, self.audio)
+
         # 4. Router de comandos
-        self.processor = CommandProcessor(self.ai, self.action, use_rapidfuzz=True)
+        self.processor = CommandProcessor(
+            self.ai, 
+            self.action, 
+            planner=self.planner, 
+            executor=self.executor, 
+            use_rapidfuzz=True
+        )
 
         # 5. Configuración del wake word (normalizado una sola vez)
         self.wake_aliases = [normalize_text(alias) for alias in WAKE_WORD]
@@ -279,6 +297,10 @@ class Icaro:
 
                     # --- Hay audio: actualizar timestamp ---
                     self.last_interaction_time = time.time()
+                    # B8 FIX: normalizar a minúsculas antes del chequeo de salida,
+                    # ya que el reconocedor puede devolver "Adiós" (con mayúscula)
+                    # y el chequeo ocurre antes de que CommandProcessor normalice.
+                    command = command.lower().strip()
                     logger.info(f"Interpretado: '{command}'")
 
                     # --- Comandos de salida (hardcoded) ---

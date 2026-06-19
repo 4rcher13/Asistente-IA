@@ -7,6 +7,8 @@ sobre vulnerabilidades, técnicas de ataque y mejores prácticas de seguridad.
 import logging
 from typing import Optional, Dict
 
+from ..core.shared_memory import log_event
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -79,13 +81,22 @@ class CybersecurityMCP:
                         if key in metrics:
                             score = metrics[key][0]["cvssData"].get("baseScore", "")
                             break
+                    
+                    # Registrar en memoria compartida
+                    log_event("CybersecurityMCP", "cve_searched", f"CVE {cve_upper} encontrado - Score: {score}")
+                    
                     return f"CVE {cve_upper} (Score: {score}): {desc[:200]}"
+                else:
+                    log_event("CybersecurityMCP", "cve_searched", f"CVE {cve_upper} no encontrado")
+                    return None
             return None
         except requests.exceptions.Timeout:
             logger.debug(f"[CybersecurityMCP] Timeout buscando {cve_id}")
+            log_event("CybersecurityMCP", "cve_search_error", f"Timeout buscando {cve_upper}")
             return None
         except Exception as e:
             logger.debug(f"[CybersecurityMCP] Error: {e}")
+            log_event("CybersecurityMCP", "cve_search_error", f"Error buscando {cve_upper}: {str(e)}")
             return None
 
     def get_security_best_practice(self, query: str) -> Optional[str]:
@@ -95,5 +106,7 @@ class CybersecurityMCP:
             if keyword in q:
                 practice = _OWASP_TOP10.get(category)
                 if practice:
+                    # Registrar en memoria compartida
+                    log_event("CybersecurityMCP", "practice_queried", f"Práctica OWASP: {category.capitalize()}")
                     return f"[OWASP - {category.capitalize()}] {practice}"
         return None

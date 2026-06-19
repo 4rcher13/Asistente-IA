@@ -9,25 +9,6 @@ from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-_DEBUG_LOG = Path(__file__).resolve().parent.parent.parent / "debug-7ec0d9.log"
-
-
-def _dbg(location: str, message: str, data: dict | None = None, hypothesis_id: str = "?") -> None:
-    # region agent log
-    try:
-        with open(_DEBUG_LOG, "a", encoding="utf-8") as f:
-            f.write(json.dumps({
-                "sessionId": "7ec0d9",
-                "location": location,
-                "message": message,
-                "data": data or {},
-                "hypothesisId": hypothesis_id,
-                "timestamp": int(time.time() * 1000),
-            }, ensure_ascii=False) + "\n")
-    except OSError:
-        pass
-    # endregion
-
 
 def _interpreter_shutting_down() -> bool:
     return getattr(sys, "is_finalizing", lambda: False)()
@@ -40,11 +21,50 @@ except ImportError:
     CHROMADB_AVAILABLE = False
     logger.warning("ChromaDB no disponible. La memoria RAG estará desactivada.")
 
-# ─── sentence_transformers NO se importa aquí ─────────────────────────────
-# Su import tarda ~78s porque ejecuta código pesado de PyTorch.
-# Se carga de forma diferida (lazy) en un hilo de background para que
-# Ícaro pueda arrancar de inmediato y el modelo esté listo cuando se
-# necesite por primera vez.
+if CHROMADB_AVAILABLE:
+    from chromadb.api.types import EmbeddingFunction, Documents, Embeddings
+
+    class GeminiEmbeddingFunction(EmbeddingFunction[Documents]):
+        """
+        Función de embedding para ChromaDB utilizando google-genai y gemini-embedding-2.
+        Implementa el protocolo EmbeddingFunction de ChromaDB.
+        """
+        def __init__(self, api_key: Optional[str] = None):
+            self._api_key = api_key
+            self._client = None
+
+        def __call__(self, input: Documents) -> Embeddings:
+            if not self._client:
+                import google.genai as genai
+                key = self._api_key
+                if not key:
+                    from ..config.settings import GEMINI_API_KEY
+                    key = GEMINI_API_KEY
+                self._client = genai.Client(api_key=key)
+
+            try:
+                response = self._client.models.embed_content(
+                    model="gemini-embedding-2",
+                    contents=input,
+                )
+                return [e.values for e in response.embeddings]
+            except Exception as e:
+                logger.error(f"Error en GeminiEmbeddingFunction: {e}")
+                raise e
+
+        @staticmethod
+        def name() -> str:
+            return "gemini-embedding-2"
+
+        @staticmethod
+        def build_from_config(config: dict) -> "GeminiEmbeddingFunction":
+            return GeminiEmbeddingFunction(api_key=config.get("api_key"))
+
+        def get_config(self) -> dict:
+            return {"api_key": self._api_key}
+else:
+    GeminiEmbeddingFunction = None  # type: ignore
+
 
 _embedding_model = None
 _embedding_lock  = threading.Lock()
@@ -56,8 +76,7 @@ _instances_lock = threading.Lock()
 
 def _load_embedding_model_background() -> None:
     """
-    Carga el modelo de embeddings en un hilo daemon.
-    Llamar UNA sola vez al arranque; el Event notifica cuando termina.
+    Configura la función de embeddings (Gemini o fallback local de ChromaDB) en background.
     """
     global _embedding_model, _embedding_failed
 
@@ -65,42 +84,23 @@ def _load_embedding_model_background() -> None:
         return
 
     if not CHROMADB_AVAILABLE or _interpreter_shutting_down():
-        _dbg("vector_memory.py:_load_embedding_model_background", "skip load", {"shutting_down": _interpreter_shutting_down()}, "A")
         _embedding_ready.set()
         return
 
     try:
-        from chromadb.utils import embedding_functions  # import ligero
-        t0 = time.perf_counter()
-
-        # Intentar SentenceTransformer (mejor calidad semántica)
-        try:
-            import sentence_transformers  # noqa — importado aquí, en background
-            _embedding_model = embedding_functions.SentenceTransformerEmbeddingFunction(
-                model_name="all-MiniLM-L6-v2"
-            )
-            _dbg("vector_memory.py:_load_embedding_model_background", "ST loaded", {"elapsed_s": round(time.perf_counter() - t0, 2)}, "A")
-            logger.info(f"Modelo SentenceTransformer listo ({time.perf_counter()-t0:.1f}s).")
-        except Exception as e:
-            _dbg("vector_memory.py:_load_embedding_model_background", "ST failed", {"error": str(e)[:120]}, "A")
-            err = str(e).lower()
-            if any(x in err for x in ("atexit", "shutdown", "interpreter")):
-                _embedding_failed = True
-                logger.debug(f"Carga de embeddings omitida (apagado del intérprete): {e}")
-            else:
-                logger.warning(f"SentenceTransformer no disponible, usando fallback ChromaDB: {e}")
-                try:
-                    _embedding_model = embedding_functions.DefaultEmbeddingFunction()
-                    logger.info("DefaultEmbeddingFunction de ChromaDB lista.")
-                except Exception as e2:
-                    logger.error(f"No se pudo cargar ningún modelo de embeddings: {e2}")
-                    _embedding_failed = True
-
+        from ..config.settings import GEMINI_API_KEY
+        if GEMINI_API_KEY:
+            _embedding_model = GeminiEmbeddingFunction(api_key=GEMINI_API_KEY)
+            logger.info("Modelo de embeddings Gemini listo.")
+        else:
+            from chromadb.utils import embedding_functions
+            _embedding_model = embedding_functions.DefaultEmbeddingFunction()
+            logger.warning("GEMINI_API_KEY no encontrada. Usando DefaultEmbeddingFunction local.")
     except Exception as e:
-        logger.error(f"Error crítico cargando embeddings: {e}")
+        logger.error(f"Error inicializando embeddings: {e}")
         _embedding_failed = True
     finally:
-        _embedding_ready.set()   # siempre notificar, aunque haya fallado
+        _embedding_ready.set()
 
 
 def get_embedding_model(timeout: float = 90.0):
@@ -136,26 +136,25 @@ class VectorMemory:
         with _instances_lock:
             _active_instances.append(self)
 
-        if self.enabled:
-            # El cliente ChromaDB es rápido de iniciar (~1s); lo hacemos aquí.
-            try:
-                self.client = chromadb.PersistentClient(path=db_path)
-                logger.info(f"VectorMemory: cliente ChromaDB listo en '{db_path}'.")
-            except Exception as e:
-                logger.error(f"No se pudo abrir ChromaDB en '{db_path}': {e}")
-                self.enabled = False
-
     def _ensure_collection(self) -> bool:
-        """Crea/obtiene la colección cuando el modelo de embeddings esté disponible."""
-        if not self.enabled or self.client is None or _interpreter_shutting_down():
-            _dbg("vector_memory.py:_ensure_collection", "blocked", {"enabled": self.enabled, "shutting_down": _interpreter_shutting_down()}, "A")
+        """Crea/obtiene la colección cuando el modelo de embeddings esté disponible (lazy client)."""
+        if not self.enabled or _interpreter_shutting_down():
             return False
+            
+        if self.client is None:
+            try:
+                self.client = chromadb.PersistentClient(path=self._db_path)
+                logger.info(f"VectorMemory: cliente ChromaDB inicializado perezosamente en '{self._db_path}'.")
+            except Exception as e:
+                logger.error(f"No se pudo abrir ChromaDB de forma perezosa en '{self._db_path}': {e}")
+                self.enabled = False
+                return False
+
         if self.collection is not None:
             return True
 
         embed_fn = get_embedding_model()
         if not embed_fn:
-            _dbg("vector_memory.py:_ensure_collection", "no embed_fn", {}, "D")
             return False
 
         try:
@@ -167,11 +166,23 @@ class VectorMemory:
             return True
         except Exception as e:
             err = str(e)
-            _dbg("vector_memory.py:_ensure_collection", "collection error", {"error": err[:160]}, "D")
             if any(x in err.lower() for x in ("atexit", "shutdown", "interpreter")):
                 self.enabled = False
-            logger.error(f"Error creando colección ChromaDB: {e}")
-            return False
+                logger.error(f"Error creando colección ChromaDB (apagado): {e}")
+                return False
+            
+            logger.warning(f"Error obteniendo colección ChromaDB (posible desajuste de dimensiones). Recreando: {e}")
+            try:
+                self.client.delete_collection(name="icaro_memories")
+                self.collection = self.client.get_or_create_collection(
+                    name="icaro_memories",
+                    embedding_function=embed_fn,
+                    metadata={"hnsw:space": "cosine"},
+                )
+                return True
+            except Exception as e2:
+                logger.error(f"Error crítico al recrear la colección ChromaDB: {e2}")
+                return False
 
     def _add_memory_task(self, role: str, text: str, intent: Optional[str] = None) -> None:
         """Tarea real de guardado (se ejecuta en el worker thread)."""

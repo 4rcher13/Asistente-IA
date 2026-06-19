@@ -9,6 +9,8 @@ import logging
 from pathlib import Path
 from typing import Optional, List
 
+from ..core.shared_memory import log_event
+
 logger = logging.getLogger(__name__)
 
 
@@ -74,6 +76,12 @@ class ObsidianMCP:
             except Exception as e:
                 logger.debug(f"[ObsidianMCP] Error leyendo {note_path}: {e}")
 
+        # Registrar en memoria compartida
+        if results:
+            log_event("ObsidianMCP", "search_completed", f"Búsqueda: '{query}' - {len(results)} resultados encontrados")
+        else:
+            log_event("ObsidianMCP", "search_completed", f"Búsqueda: '{query}' - sin resultados")
+        
         return "Notas de Obsidian relevantes:\n" + "\n".join(results)
 
     def create_or_append_note(self, title: str, content: str, folder: str = "Icaro_Knowledge") -> bool:
@@ -99,8 +107,13 @@ class ObsidianMCP:
                     f.write("\n\n--- Actualización ---\n")
                 f.write(content)
             
-            logger.info(f"[ObsidianMCP] Nota {'actualizada' if mode == 'a' else 'creada'}: {note_path}")
+            action = "actualizada" if mode == "a" else "creada"
+            logger.info(f"[ObsidianMCP] Nota {action}: {note_path}")
+            
+            # Registrar en memoria compartida
+            log_event("ObsidianMCP", "note_saved", f"Nota {action}: {filename} en carpeta '{folder}'")
             return True
         except Exception as e:
             logger.error(f"[ObsidianMCP] Fallo al escribir nota: {e}")
+            log_event("ObsidianMCP", "note_save_error", f"Error escribiendo {title}: {str(e)}")
             return False

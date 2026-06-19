@@ -8,6 +8,8 @@ en tiempo real, sin depender de datos de entrenamiento desactualizados.
 import logging
 from typing import Optional
 
+from ..core.shared_memory import log_event
+
 logger = logging.getLogger(__name__)
 
 # Importación opcional de requests para no bloquear el inicio si no está instalado
@@ -51,11 +53,17 @@ class GeminiMCP:
                 # El servidor devuelve una lista de fragmentos relevantes
                 snippets = data.get("snippets", [])
                 if snippets:
+                    # Registrar en memoria compartida
+                    log_event("GeminiMCP", "docs_searched", f"Búsqueda: '{query}' - {len(snippets)} fragmentos encontrados")
                     return "\n".join(snippets[:2])  # Máximo 2 fragmentos para no saturar el contexto
+                else:
+                    log_event("GeminiMCP", "docs_searched", f"Búsqueda: '{query}' - sin fragmentos")
             return None
         except requests.exceptions.Timeout:
             logger.debug("[GeminiMCP] Timeout al consultar documentación.")
+            log_event("GeminiMCP", "docs_search_error", f"Timeout buscando: '{query}'")
             return None
         except Exception as e:
             logger.debug(f"[GeminiMCP] Error: {e}")
+            log_event("GeminiMCP", "docs_search_error", f"Error buscando '{query}': {str(e)}")
             return None

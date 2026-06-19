@@ -79,12 +79,12 @@ class Telemetry:
             return
         try:
             payload = f"{state}|{_sanitize(transcript)}|{_sanitize(response)}"
-            # IMPORTANTE: Aumentamos el buffer pero si el payload supera el límite UDP (65507),
-            # truncamos el string antes de enviarlo.
-            encoded = payload.encode("utf-8")
-            if len(encoded) > 65000:
-                encoded = encoded[:65000]
-            self._sock.sendto(encoded, self._addr)
+            # B12 FIX: truncar el STRING (no los bytes) para evitar cortar un carácter
+            # UTF-8 multibyte (emojis, tildes) que causaría UnicodeDecodeError en C#.
+            # Estimamos el límite de chars a ~20000 (muy por debajo del límite UDP de 65507)
+            if len(payload) > 20000:
+                payload = payload[:20000]
+            self._sock.sendto(payload.encode("utf-8"), self._addr)
         except BlockingIOError:
             pass  # El socket en modo non-blocking puede lanzar esto; es seguro ignorar.
         except Exception as exc:

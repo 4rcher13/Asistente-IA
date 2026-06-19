@@ -1,22 +1,41 @@
 import os
+import io
+import base64
 import platform
 import webbrowser
 import time
 import datetime
 import subprocess
+import logging
 from typing import Dict, Any, Optional
 from ..core.event_bus import bus, EventType
+from ..core.shared_memory import log_event
 
-pyautogui = None
-pyperclip = None
-gw = None
+logger = logging.getLogger(__name__)
 
-try:
-    import pyautogui
-    import pyperclip
-    import pygetwindow as gw
-except ImportError:
-    print("[ActionService] Advertencia: Módulos de automatización GUI no instalados. (pip install pyautogui pyperclip pygetwindow)")
+# ─── Lazy Imports para GUI (evitar carga pesada al arranque) ───────────────
+_pyautogui = None
+_pyperclip = None
+_gw = None
+_gui_loaded = False
+
+
+def _ensure_gui_modules():
+    """Carga pyautogui, pyperclip y pygetwindow solo cuando se necesitan por primera vez."""
+    global _pyautogui, _pyperclip, _gw, _gui_loaded
+    if _gui_loaded:
+        return
+    _gui_loaded = True
+    try:
+        import pyautogui as _pa
+        import pyperclip as _pc
+        import pygetwindow as _pw
+        _pyautogui = _pa
+        _pyautogui.FAILSAFE = True  # SECURITY: Permite abortar moviendo el ratón a una esquina
+        _pyperclip = _pc
+        _gw = _pw
+    except ImportError:
+        logger.warning("Módulos de automatización GUI no instalados. (pip install pyautogui pyperclip pygetwindow)")
 
 
 # Whitelist de aplicaciones permitidas por seguridad
@@ -37,10 +56,15 @@ class ActionService:
     
     def __init__(self):
         self.obsidian_mcp = None
+        self.ai_service = None  # Inyectado para visión multimodal
 
     def set_obsidian_mcp(self, mcp):
         """Inyección de dependencia para acciones de conocimiento."""
         self.obsidian_mcp = mcp
+
+    def set_ai_service(self, ai_svc):
+        """Inyección de dependencia para acciones que necesitan el motor de IA (e.g. visión)."""
+        self.ai_service = ai_svc
 
     def execute(self, config: Dict[str, Any]) -> str:
         """
@@ -57,29 +81,34 @@ class ActionService:
         if intent == "buscar_google":
             res = self._buscar_google(config.get("target", ""))
         elif intent == "control_volumen":
-            return self._control_volumen(config.get("target", ""))
+            res = self._control_volumen(config.get("target", ""))
         elif intent == "reproducir_youtube":
-            return self._reproducir_youtube(config.get("target", ""))
+            res = self._reproducir_youtube(config.get("target", ""))
         elif intent == "cerrar_ventana":
-            return self._cerrar_ventana(config.get("target", ""))
+            res = self._cerrar_ventana(config.get("target", ""))
         elif intent in ("abrir_aplicacion", "open_app"):
-            return self._abrir_aplicacion(config.get("target", ""))
+            res = self._abrir_aplicacion(config.get("target", ""))
         elif intent == "crear_carpeta":
-            return self._crear_carpeta(config.get("target", ""))
+            res = self._crear_carpeta(config.get("target", ""))
         elif intent == "escribir_texto":
-            return self._escribir_texto(config.get("target", ""))
+            res = self._escribir_texto(config.get("target", ""))
         elif intent == "dar_hora_fecha":
-            return self._dar_hora_fecha(config.get("target", "hora"))
+            res = self._dar_hora_fecha(config.get("target", "hora"))
         elif intent == "suspender_equipo":
-            return self._suspender_equipo()
+            res = self._suspender_equipo()
         elif intent == "hacer_click":
-            return self._hacer_click()
+            res = self._hacer_click()
+        elif intent == "ver_pantalla":
+            res = self._ver_pantalla(config.get("target", ""))
         elif intent == "guardar_en_obsidian":
-            return self._guardar_en_obsidian(config)
+            res = self._guardar_en_obsidian(config)
             
         else:
             res = f"Acción desconocida: {intent}"
-            
+        
+        # Registrar en memoria compartida
+        log_event("ActionService", "action_executed", f"{intent}: {res}")
+        
         bus.publish(EventType.ACTION_COMPLETED, {"intent": intent, "result": res})
         return res
 
@@ -111,19 +140,20 @@ class ActionService:
             return f"Error al abrir {nombre_app}: {str(e)}"
 
     def _cerrar_ventana(self, nombre_ventana: str) -> str:
+        _ensure_gui_modules()
         objetivo = nombre_ventana.lower().strip()
         try:
-            if gw:
-                encontrada = next((v for v in gw.getAllWindows() if objetivo and objetivo in v.title.lower() and v.visible), None)
+            if _gw:
+                encontrada = next((v for v in _gw.getAllWindows() if objetivo and objetivo in v.title.lower() and v.visible), None)
             else:
                 encontrada = None
                 
-            if encontrada and pyautogui:
+            if encontrada and _pyautogui:
                 encontrada.activate()
                 time.sleep(0.2)
                 es_navegador = any(k in encontrada.title.lower() for k in ("youtube", "edge", "chrome", "firefox"))
-                if es_navegador: pyautogui.hotkey('ctrl', 'w')
-                else: pyautogui.hotkey('alt', 'f4')
+                if es_navegador: _pyautogui.hotkey('ctrl', 'w')
+                else: _pyautogui.hotkey('alt', 'f4')
                 return f"Se cerró {objetivo}."
             return f"No encontré ventana {objetivo}."
         except Exception as e:
@@ -131,11 +161,14 @@ class ActionService:
 
     def _control_volumen(self, accion: str) -> str:
         if platform.system() != "Windows": return "No disponible"
+        _ensure_gui_modules()
         mapa = {"subir": ("volumeup", 5), "bajar": ("volumedown", 5), "silenciar": ("volumemute", 1)}
-        tecla, rep = mapa.get(accion.lower(), (None, 0))
-        if tecla and pyautogui:
+        # B9 FIX: convertir a str antes de .lower() para evitar AttributeError con None
+        accion_str = str(accion).lower() if accion is not None else ""
+        tecla, rep = mapa.get(accion_str, (None, 0))
+        if tecla and _pyautogui:
             try:
-                for _ in range(rep): pyautogui.press(tecla)
+                for _ in range(rep): _pyautogui.press(tecla)
                 return "listo"
             except Exception:
                 pass
@@ -143,25 +176,36 @@ class ActionService:
 
     def _buscar_google(self, query: str) -> str:
         if query:
-            # Sanitización básica de URL
-            query_sanitizada = query.replace(' ', '+').replace('"', '').replace("'", "")
+            # B1 FIX: usar quote_plus para encoding RFC-3986 correcto
+            import urllib.parse
+            query_sanitizada = urllib.parse.quote_plus(str(query))
             webbrowser.open(f"https://www.google.com/search?q={query_sanitizada}")
         return "búsqueda abierta"
 
     def _reproducir_youtube(self, query: str) -> str:
         if query:
             import urllib.request
+            import urllib.parse
             import re
             try:
-                keyword = query.replace(' ', '+').replace('"', '')
-                html = urllib.request.urlopen("https://www.youtube.com/results?search_query=" + keyword)
-                video_ids = re.findall(r"watch\?v=(\S{11})", html.read().decode())
+                # B2 FIX: añadir User-Agent real para evitar HTTP 403 de YouTube
+                keyword = urllib.parse.quote_plus(str(query))
+                req = urllib.request.Request(
+                    f"https://www.youtube.com/results?search_query={keyword}",
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"}
+                )
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    html_text = response.read().decode("utf-8", errors="replace")
+                # B3 FIX: validar que el ID tenga exactamente 11 chars alfanuméricos
+                video_ids = re.findall(r"watch\?v=([a-zA-Z0-9_-]{11})", html_text)
                 if video_ids:
                     webbrowser.open("https://www.youtube.com/watch?v=" + video_ids[0])
                 else:
                     webbrowser.open(f"https://www.youtube.com/results?search_query={keyword}")
-            except Exception:
-                webbrowser.open(f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}")
+            except Exception as e:
+                logger.warning(f"YouTube search falló ({e}), abriendo búsqueda directa.")
+                fallback = urllib.parse.quote_plus(str(query))
+                webbrowser.open(f"https://www.youtube.com/results?search_query={fallback}")
         else:
             webbrowser.open("https://www.youtube.com/")
         return "youtube abierto"
@@ -175,13 +219,14 @@ class ActionService:
         return f"Carpeta '{nombre_seguro}' creada en el escritorio."
 
     def _escribir_texto(self, texto: str) -> str:
-        if texto and pyperclip and pyautogui:
+        _ensure_gui_modules()
+        if texto and _pyperclip and _pyautogui:
             time.sleep(0.4)
             try:
-                pyperclip.copy(texto)
-                pyautogui.hotkey('ctrl', 'v')
+                _pyperclip.copy(texto)
+                _pyautogui.hotkey('ctrl', 'v')
             except Exception:
-                pyautogui.write(texto, interval=0.015)
+                _pyautogui.write(texto, interval=0.015)
         return "escrito"
 
     def _dar_hora_fecha(self, tipo: str) -> str:
@@ -191,8 +236,9 @@ class ActionService:
         return f"Hoy es {ahora.day} del {ahora.month} del {ahora.year}."
 
     def _hacer_click(self) -> str:
+        _ensure_gui_modules()
         try: 
-            if pyautogui: pyautogui.click()
+            if _pyautogui: _pyautogui.click()
         except Exception: 
             pass
         return "click"
@@ -202,6 +248,72 @@ class ActionService:
             # Comando de sistema seguro
             subprocess.run(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"], shell=False)
         return "equipo suspendido"
+
+    def _ver_pantalla(self, pregunta: str = "") -> str:
+        """Captura la pantalla y la envía a Gemini para análisis visual multimodal."""
+        _ensure_gui_modules()
+        if not _pyautogui:
+            return "No puedo capturar la pantalla sin pyautogui instalado."
+
+        # Verificar que el motor de IA con capacidad multimodal esté disponible
+        if not self.ai_service or not self.ai_service.ia_habilitada or not self.ai_service.client:
+            return "No puedo analizar la pantalla: Gemini no está disponible."
+
+        try:
+            # 1. Capturar pantalla
+            screenshot = _pyautogui.screenshot()
+
+            # 2. Redimensionar para reducir tokens (max 1280px ancho)
+            width, height = screenshot.size
+            if width > 1280:
+                ratio = 1280 / width
+                screenshot = screenshot.resize(
+                    (1280, int(height * ratio)),
+                )
+
+            # 3. Convertir a bytes PNG en memoria
+            buf = io.BytesIO()
+            screenshot.save(buf, format="PNG", optimize=True)
+            image_bytes = buf.getvalue()
+            buf.close()
+
+            # 4. Construir prompt multimodal
+            if not pregunta:
+                pregunta = "Describe detalladamente lo que ves en esta captura de pantalla."
+
+            # Lazy import del SDK de Gemini (ya cargado por ai_service)
+            try:
+                from google.genai import types as gtypes
+            except ImportError:
+                return "SDK de Gemini no disponible para visión."
+
+            # 5. Llamar a Gemini con imagen + texto
+            response = self.ai_service.client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[
+                    gtypes.Content(
+                        role="user",
+                        parts=[
+                            gtypes.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+                            gtypes.Part.from_text(
+                                text=f"Eres Ícaro, un asistente de IA experto en programación y ciberseguridad. "
+                                     f"El usuario te muestra su pantalla. {pregunta} "
+                                     f"Responde en español de forma clara y concisa."
+                            ),
+                        ],
+                    )
+                ],
+                config=gtypes.GenerateContentConfig(temperature=0.3),
+            )
+
+            if response and response.text:
+                logger.info(f"Visión completada: {len(response.text)} chars")
+                return response.text.strip()
+            return "No pude interpretar la captura de pantalla."
+
+        except Exception as e:
+            logger.error(f"Error en visión de pantalla: {e}")
+            return f"Error al analizar la pantalla: {str(e)}"
 
     def _guardar_en_obsidian(self, config: Dict[str, Any]) -> str:
         """Guarda conocimiento crítico en el vault de Obsidian."""

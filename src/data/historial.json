@@ -9,6 +9,160 @@
   },
   {
     "role": "user",
-    "text": "podrías investigar las noticias de hoy"
+    "text": "abre visual studio code"
+  },
+  {
+    "role": "system",
+    "source": "ActionService",
+    "event_type": "action_executed",
+    "text": "[ActionService|action_executed] abrir_aplicacion: Se abrió vscode"
+  },
+  {
+    "role": "model",
+    "text": "Abriendo Visual Studio Code."
+  },
+  {
+    "role": "user",
+    "text": "abre whatsapp"
+  },
+  {
+    "role": "system",
+    "source": "ActionService",
+    "event_type": "action_executed",
+    "text": "[ActionService|action_executed] abrir_aplicacion: Acceso denegado: 'whatsapp' no está en la lista blanca de seguridad."
+  },
+  {
+    "role": "model",
+    "text": "Intentando abrir whatsapp."
+  },
+  {
+    "role": "user",
+    "text": "abre youtube"
+  },
+  {
+    "role": "system",
+    "source": "ActionService",
+    "event_type": "action_executed",
+    "text": "[ActionService|action_executed] reproducir_youtube: youtube abierto"
+  },
+  {
+    "role": "model",
+    "text": "Buscando en YouTube: ."
+  },
+  {
+    "role": "user",
+    "text": "abre youtube y busca el artista coldplay"
+  },
+  {
+    "role": "system",
+    "source": "ActionService",
+    "event_type": "action_executed",
+    "text": "[ActionService|action_executed] reproducir_youtube: youtube abierto"
+  },
+  {
+    "role": "model",
+    "text": "Buscando en YouTube: y buscar el artista coldplay."
+  },
+  {
+    "role": "user",
+    "text": "abre youtube y busca el artista coldplay y pon beautiful"
+  },
+  {
+    "role": "system",
+    "source": "ActionService",
+    "event_type": "action_executed",
+    "text": "[ActionService|action_executed] reproducir_youtube: youtube abierto"
+  },
+  {
+    "role": "model",
+    "text": "Buscando en YouTube: y buscar el artista coldplay y  beautiful."
+  },
+  {
+    "role": "user",
+    "text": "puedes ver mi pantalla"
+  },
+  {
+    "role": "system",
+    "source": "ActionService",
+    "event_type": "action_executed",
+    "text": "[Largo omitido: [ActionService|action_executed] ver_pantalla: ¡Sal...]"
+  },
+  {
+    "role": "user",
+    "text": "mi color favorito es el azul"
+  },
+  {
+    "role": "model",
+    "text": "¡Ah, sí! Ya me habías comentado que el azul es tu color favorito, Jesús. Es un color muy bonito y versátil."
+  },
+  {
+    "role": "user",
+    "text": "mi coche favorito es el camaro"
+  },
+  {
+    "role": "model",
+    "text": "¡Ah, sí! Ya recordaba que el camaro es tu coche favorito, Jesús. ¡Un coche con mucha personalidad!"
+  },
+  {
+    "role": "user",
+    "text": "cuál es mi color favorito cuál es mi color favorito"
+  },
+  {
+    "role": "model",
+    "text": "Tu color favorito es el azul, Jesús. ¡Ya me lo habías comentado antes!"
+  },
+  {
+    "role": "user",
+    "text": "podrías abrir visual studio ghost"
+  },
+  {
+    "role": "system",
+    "source": "ActionService",
+    "event_type": "action_executed",
+    "text": "[ActionService|action_executed] abrir_aplicacion: Se abrió vscode"
+  },
+  {
+    "role": "model",
+    "text": "Abriendo Visual Studio Code."
+  },
+  {
+    "role": "user",
+    "text": "puedes ver que tengo abierto en visual studio code 90 minutos"
+  },
+  {
+    "role": "system",
+    "source": "ActionService",
+    "event_type": "action_executed",
+    "text": "[ActionService|action_executed] abrir_aplicacion: Se abrió vscode"
+  },
+  {
+    "role": "user",
+    "text": "dame la hora"
+  },
+  {
+    "role": "system",
+    "source": "ActionService",
+    "event_type": "action_executed",
+    "text": "[ActionService|action_executed] dar_hora_fecha: Son las 01:08 PM."
+  },
+  {
+    "role": "model",
+    "text": "Son las 01:08 PM."
+  },
+  {
+    "role": "user",
+    "text": "abre el bloc de notas"
+  },
+  {
+    "role": "system",
+    "source": "ActionService",
+    "event_type": "action_executed",
+    "text": "[ActionService|action_executed] abrir_aplicacion: Se abrió notepad"
+  },
+  {
+    "role": "system",
+    "source": "TestMCP",
+    "event_type": "test_event",
+    "text": "Test content"
   }
 ]

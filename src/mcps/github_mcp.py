@@ -10,6 +10,8 @@ import logging
 import base64
 from typing import Optional, List, Dict, Any
 
+from ..core.shared_memory import log_event
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -88,9 +90,13 @@ class GitHubMCP:
         if not data or data.get("encoding") != "base64":
             return None
         try:
-            return base64.b64decode(data["content"]).decode("utf-8")
+            content = base64.b64decode(data["content"]).decode("utf-8")
+            # Registrar en memoria compartida
+            log_event("GitHubMCP", "file_read", f"Archivo leído: {owner}/{repo}/{path}")
+            return content
         except Exception as e:
             logger.debug(f"[GitHubMCP] Error decodificando {path}: {e}")
+            log_event("GitHubMCP", "file_read_error", f"Error leyendo {owner}/{repo}/{path}: {str(e)}")
             return None
 
     def get_repo_tree(self, owner: str, repo: str, branch: str = "main") -> List[str]:
@@ -108,8 +114,13 @@ class GitHubMCP:
         q = f"{query}+user:{owner}" if owner else query
         data = self._get("/search/code", params={"q": q, "per_page": 3})
         if not data or not data.get("items"):
+            log_event("GitHubMCP", "search_code", f"Búsqueda: '{query}' - sin resultados")
             return None
         results = []
         for item in data["items"]:
             results.append(f"- [{item['repository']['full_name']}] {item['path']}")
+        
+        # Registrar en memoria compartida
+        log_event("GitHubMCP", "search_code", f"Búsqueda: '{query}' - {len(results)} resultados")
+        
         return "Código encontrado en GitHub:\n" + "\n".join(results)

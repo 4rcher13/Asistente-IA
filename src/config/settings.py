@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 # ----------------------------------------------------------------------
 # Carga de variables de entorno
 # ----------------------------------------------------------------------
-load_dotenv()
+load_dotenv(override=True)
 
 # ----------------------------------------------------------------------
 # Rutas base (absolutas)
@@ -32,8 +32,7 @@ GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
 GITHUB_TOKEN: Optional[str] = os.getenv("GITHUB_TOKEN")          # Token para GitHub MCP
 
 if not GEMINI_API_KEY:
-    print("Error: GEMINI_API_KEY no está definida en el entorno o archivo .env")
-    sys.exit(1)
+    print("Aviso: GEMINI_API_KEY no está definida. Gemini y embeddings RAG estarán desactivados.")
 
 # RUTAS DE CONOCIMIENTO EXTERNO Y PERFIL
 OBSIDIAN_VAULT_PATH: Optional[str] = os.getenv("OBSIDIAN_VAULT_PATH")

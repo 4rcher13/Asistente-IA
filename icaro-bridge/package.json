@@ -1,0 +1,59 @@
+{
+  "name": "icaro-bridge",
+  "displayName": "icaro-bridge",
+  "description": "Bridge between VS Code and Icaro Core.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.120.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:icaro.sendContext"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "icaro.sendContext",
+        "title": "Icaro: Send Context"
+      }
+    ]
+  },
+  "configuration": {
+    "title": "Icaro Bridge",
+    "properties": {
+      "icaroBridge.endpoint": {
+        "type": "string",
+        "default": "http://localhost:8000/context",
+        "description": "Endpoint used to send the active editor context to Icaro Core."
+      },
+      "icaroBridge.timeoutMs": {
+        "type": "number",
+        "default": 2000,
+        "minimum": 250,
+        "description": "Timeout in milliseconds for requests to Icaro Core."
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.120.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "typescript-eslint": "^8.56.1",
+    "eslint": "^9.39.3",
+    "typescript": "^5.9.3",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2"
+  }
+}

@@ -7,6 +7,8 @@ mejorando la coherencia y precisión en tareas de programación, ciberseguridad 
 import logging
 from typing import List, Dict, Any, Optional
 
+from ..core.shared_memory import log_event
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,6 +34,10 @@ class SequentialThinkingMCP:
         self._history.append(entry)
         tag = "[REVISIÓN]" if is_revision else f"[Paso {step}/{total_steps}]"
         logger.debug(f"[SequentialThinking] {tag}: {thought[:80]}...")
+        
+        # Registrar en memoria compartida
+        event_type = "step_revision" if is_revision else "step_recorded"
+        log_event("SequentialThinkingMCP", event_type, f"{tag}: {thought}")
 
     def get_chain_of_thought(self) -> str:
         """Retorna el razonamiento completo como texto formateado."""
@@ -45,6 +51,14 @@ class SequentialThinkingMCP:
 
     def clear(self) -> None:
         """Limpia el historial de razonamiento (nueva sesión de pensamiento)."""
+        if self._history:
+            # Registrar resumen de la sesión completada
+            summary = f"Sesión de razonamiento completada: {len(self._history)} pasos"
+            if self.has_revisions:
+                revision_count = sum(1 for e in self._history if e["is_revision"])
+                summary += f" ({revision_count} revisiones)"
+            log_event("SequentialThinkingMCP", "session_completed", summary)
+        
         self._history.clear()
 
     @property

@@ -40,7 +40,7 @@ def ai_service_offline(memory_manager):
     with patch("src.services.ai_service.ollama", None), \
          patch("src.services.ai_service.genai", None):
         from src.services.ai_service import AIService
-        ai = AIService(memory_manager)
+        ai = AIService(memory_manager, warmup=False)
         ai.ia_habilitada = False
         ai.ollama_habilitado = False
         ai._models_initialized = True
