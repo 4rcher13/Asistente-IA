@@ -101,7 +101,7 @@ def _load_embedding_model_background() -> None:
     if _embedding_ready.is_set():
         return
 
-    if not CHROMADB_AVAILABLE or _interpreter_shutting_down():
+    if not AI_ENABLE_RAG or not CHROMADB_AVAILABLE or _interpreter_shutting_down():
         _embedding_ready.set()
         return
 
@@ -143,7 +143,7 @@ class VectorMemory:
     """
 
     def __init__(self, db_path: str = "data/chroma_db"):
-        self.enabled = CHROMADB_AVAILABLE
+        self.enabled = CHROMADB_AVAILABLE and AI_ENABLE_RAG
         self.collection = None
         self.client = None
         self._db_path = db_path

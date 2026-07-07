@@ -41,13 +41,14 @@ if gitignore.exists():
 else:
     print("   ⚠️ .gitignore no encontrado")
 
-# 4. Verificar config.py
-print("\n4️⃣ Verificando config.py...")
-from src.config import config
-print(f"   ✅ config.py cargado")
-print(f"   - Ambiente: {config.ENVIRONMENT}")
-print(f"   - Debug: {config.DEBUG}")
-print(f"   - BD: {config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}")
+# 4. Verificar settings.py
+print("\n4️⃣ Verificando settings.py...")
+from src.config.settings import ENVIRONMENT, DEBUG, DB_HOST, DB_PORT, DB_NAME, validate_config
+validate_config()
+print("   ✅ settings.py cargado")
+print(f"   - Ambiente: {ENVIRONMENT}")
+print(f"   - Debug: {DEBUG}")
+print(f"   - BD: {DB_HOST}:{DB_PORT}/{DB_NAME}")
 
 # 5. Verificar Pydantic
 print("\n5️⃣ Verificando esquemas de validación...")

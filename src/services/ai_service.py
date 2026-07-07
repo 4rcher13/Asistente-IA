@@ -4,7 +4,6 @@ import logging
 import threading
 import sys
 import time
-from pathlib import Path
 from typing import Dict, Any, Optional, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 
@@ -26,7 +25,17 @@ types = None
 ollama = None
 OpenAI = None
 
-from ..config.settings import GEMINI_API_KEY, MODELO_LOCAL, OBSIDIAN_VAULT_PATH, GITHUB_TOKEN, USER_NAME, NVIDIA_API_KEY
+from ..config.settings import (
+    GEMINI_API_KEY,
+    MODELO_LOCAL,
+    OBSIDIAN_VAULT_PATH,
+    GITHUB_TOKEN,
+    USER_NAME,
+    NVIDIA_API_KEY,
+    AI_WARMUP,
+    AI_ENABLE_MCP,
+    AI_MAX_MCP_WORKERS,
+)
 from ..core.event_bus import bus, EventType
 from ..core.plugin_loader import plugin_loader
 from ..core.shared_memory import log_event
@@ -58,25 +67,6 @@ except ImportError:
     GitHubMCP = None  # type: ignore
 
 logger = logging.getLogger(__name__)
-
-_DEBUG_LOG = Path(__file__).resolve().parent.parent.parent / "debug-a76827.log"
-
-
-def _dbg_perf(location: str, message: str, data: dict | None = None, hypothesis_id: str = "?") -> None:
-    # region agent log
-    try:
-        with open(_DEBUG_LOG, "a", encoding="utf-8") as f:
-            f.write(json.dumps({
-                "sessionId": "a76827",
-                "location": location,
-                "message": message,
-                "data": data or {},
-                "hypothesisId": hypothesis_id,
-                "timestamp": int(time.time() * 1000),
-            }, ensure_ascii=False) + "\n")
-    except OSError:
-        pass
-    # endregion
 
 
 # --------------------------------------------------------------------------
@@ -158,7 +148,7 @@ Reglas:
 Comando: {{text}}
 JSON:"""
 
-    def __init__(self, memory_manager, *, warmup: bool = True):
+    def __init__(self, memory_manager, *, warmup: Optional[bool] = None):
         self.memory = memory_manager
         self.ia_habilitada = False
         self.ollama_habilitado = False
@@ -170,23 +160,26 @@ JSON:"""
         self._models_initialized = False
         self._ai_disabled = False
         self._init_lock = threading.Lock()
+        self._mcp_init_lock = threading.Lock()
+        self._mcp_cache: Dict[str, Any] = {}
 
         # Pre-formatear prompts con el nombre del usuario
         self._PROMPT_SIMPLE = self._PROMPT_SIMPLE.format(user_name=USER_NAME)
         self._PROMPT_COMPLEX = self._PROMPT_COMPLEX.format(user_name=USER_NAME)
 
-        # Inicializar MCPs (opcionales — no bloquean el arranque)
-        self.gemini_mcp = GeminiMCP() if GeminiMCP else None
-        self.thinking_mcp = SequentialThinkingMCP() if SequentialThinkingMCP else None
-        self.security_mcp = CybersecurityMCP() if CybersecurityMCP else None
-        self.obsidian_mcp = ObsidianMCP(OBSIDIAN_VAULT_PATH) if ObsidianMCP else None
-        self.github_mcp = GitHubMCP(GITHUB_TOKEN) if GitHubMCP else None
-        
-        # Executor para llamadas asíncronas a MCPs (evita bloqueos)
-        self.mcp_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="MCPCalls")
+        # Inicializar MCPs de forma perezosa para no cargarlos al arrancar
+        self.gemini_mcp = None
+        self.thinking_mcp = None
+        self.security_mcp = None
+        self.obsidian_mcp = None
+        self.github_mcp = None
 
-        # Precalentar modelos en background para reducir latencia del primer comando
-        if warmup:
+        # Executor para llamadas asíncronas a MCPs (evita bloqueos)
+        self.mcp_executor = ThreadPoolExecutor(max_workers=AI_MAX_MCP_WORKERS, thread_name_prefix="MCPCalls")
+
+        # Precalentar modelos en background solo si está explícitamente habilitado
+        should_warmup = AI_WARMUP if warmup is None else warmup
+        if should_warmup:
             threading.Thread(
                 target=self._ensure_models_initialized,
                 daemon=True,
@@ -212,6 +205,28 @@ JSON:"""
         """Ejecuta fn con timeout; lanza FuturesTimeout si excede."""
         with ThreadPoolExecutor(max_workers=1, thread_name_prefix="LLMCall") as pool:
             return pool.submit(fn).result(timeout=timeout)
+
+    def _get_mcp_instance(self, cache_key: str, factory: Optional[Callable[[], Any]], *args: Any) -> Any:
+        """Crea un MCP cuando se necesita, en vez de al arrancar el servicio."""
+        if not AI_ENABLE_MCP or factory is None:
+            return None
+
+        cached = self._mcp_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        with self._mcp_init_lock:
+            cached = self._mcp_cache.get(cache_key)
+            if cached is not None:
+                return cached
+            try:
+                instance = factory(*args) if args else factory()
+            except Exception as exc:
+                logger.debug(f"No se pudo inicializar MCP {cache_key}: {exc}")
+                self._mcp_cache[cache_key] = None
+                return None
+            self._mcp_cache[cache_key] = instance
+            return instance
 
     # ------------------------------------------------------------------
     # Inicialización paralela de modelos
@@ -307,28 +322,17 @@ JSON:"""
                 }
                 for f in as_completed(futures, timeout=10):
                     name = futures[f]
-                    t0 = time.perf_counter()
                     try:
                         f.result()
-                        _dbg_perf(
-                            "ai_service.py:_ensure_models_initialized",
-                            f"{name} init ok",
-                            {"elapsed_ms": round((time.perf_counter() - t0) * 1000, 1)},
-                            "H1",
-                        )
                     except Exception as exc:
                         logger.error(f"Error en inicialización de modelo ({name}): {exc}")
 
-            _dbg_perf(
-                "ai_service.py:_ensure_models_initialized",
-                "models init complete",
-                {
-                    "total_ms": round((time.perf_counter() - t_init) * 1000, 1),
-                    "gemini": self.ia_habilitada,
-                    "ollama": self.ollama_habilitado,
-                    "nvidia": self.nvidia_habilitado,
-                },
-                "H1",
+            logger.debug(
+                "Modelos IA inicializados en %.0fms (gemini=%s, ollama=%s, nvidia=%s)",
+                (time.perf_counter() - t_init) * 1000,
+                self.ia_habilitada,
+                self.ollama_habilitado,
+                self.nvidia_habilitado,
             )
             self._models_initialized = True
 
@@ -649,11 +653,10 @@ JSON:"""
 
         t_ctx = time.perf_counter()
         contexto = self._build_context(text, include_mcp=is_complex)
-        _dbg_perf(
-            "ai_service.py:route_command",
-            "context built",
-            {"elapsed_ms": round((time.perf_counter() - t_ctx) * 1000, 1), "is_complex": is_complex},
-            "H3",
+        logger.debug(
+            "Contexto construido en %.0fms (complejo=%s)",
+            (time.perf_counter() - t_ctx) * 1000,
+            is_complex,
         )
 
         if is_complex:
@@ -693,21 +696,15 @@ JSON:"""
         if datos:
             result = self._parse_routing_data(datos)
             bus.publish(EventType.INTENT_ROUTED, result)
-            _dbg_perf(
-                "ai_service.py:route_command",
-                "route complete",
-                {"total_ms": round((time.perf_counter() - t_route) * 1000, 1), "intent": result.get("intent")},
-                "H4",
+            logger.debug(
+                "Routing completado en %.0fms (intent=%s)",
+                (time.perf_counter() - t_route) * 1000,
+                result.get("intent"),
             )
             return result
 
         # --- Paso 4: fallback total ---
-        _dbg_perf(
-            "ai_service.py:route_command",
-            "route failed",
-            {"total_ms": round((time.perf_counter() - t_route) * 1000, 1)},
-            "H4",
-        )
+        logger.debug("Routing fallido en %.0fms", (time.perf_counter() - t_route) * 1000)
         return {
             "intent": None,
             "target": None,
@@ -718,12 +715,19 @@ JSON:"""
         """Construye contexto histórico ligero y semántico (RAG)."""
         if not self.memory:
             return ""
-        
+
         contexto_final = ""
         q_lower = query.lower()
-        
-        # 1. Recuperación Semántica (RAG) - solo si hay query sustancial
-        if hasattr(self.memory, 'vector_db') and self.memory.vector_db and len(query) > 8:
+        should_use_heavy_context = len(query.strip()) > 15 and any(
+            kw in q_lower for kw in [
+                "analiza", "analisis", "investiga", "explica", "explícame", "codigo", "código",
+                "programa", "funcion", "clase", "algoritmo", "refactoriza", "depura",
+                "debug", "error", "bug", "diseño", "arquitectura", "estrategia", "plan"
+            ]
+        )
+
+        # 1. Recuperación Semántica (RAG) - solo para consultas pesadas o largas
+        if hasattr(self.memory, 'vector_db') and self.memory.vector_db and should_use_heavy_context:
             try:
                 contexto_semantico = self.memory.vector_db.get_context_string(query, max_results=2)
                 if contexto_semantico:
@@ -732,23 +736,25 @@ JSON:"""
                 logger.debug(f"Fallo en RAG semántico: {e}")
 
         # 2. Skills: solo en consultas complejas o largas
-        if include_mcp or len(query) > 40:
+        if include_mcp or should_use_heavy_context:
             contexto_plugins = plugin_loader.get_context_injection()
             if contexto_plugins:
                 contexto_final += "Conocimiento de Habilidades (Skills):\n" + contexto_plugins + "\n"
 
         # 3. MCPs (solo si include_mcp y hay keywords relevantes)
-        if include_mcp:
+        if include_mcp and should_use_heavy_context:
             mcp_tasks = []
+            gemini_mcp = self._get_mcp_instance("gemini_mcp", GeminiMCP)
+            if gemini_mcp and ("gemini" in q_lower or "api" in q_lower):
+                mcp_tasks.append(self.mcp_executor.submit(gemini_mcp.search_documentation, query))
 
-            if self.gemini_mcp and ("gemini" in q_lower or "api" in q_lower):
-                mcp_tasks.append(self.mcp_executor.submit(self.gemini_mcp.search_documentation, query))
+            security_mcp = self._get_mcp_instance("security_mcp", CybersecurityMCP)
+            if security_mcp and any(w in q_lower for w in ["seguridad", "vulnerabilidad", "exploit", "hash"]):
+                mcp_tasks.append(self.mcp_executor.submit(security_mcp.get_security_best_practice, query))
 
-            if self.security_mcp and any(w in q_lower for w in ["seguridad", "vulnerabilidad", "exploit", "hash"]):
-                mcp_tasks.append(self.mcp_executor.submit(self.security_mcp.get_security_best_practice, query))
-
-            if self.obsidian_mcp and any(w in q_lower for w in ["nota", "obsidian", "mi conocimiento"]):
-                mcp_tasks.append(self.mcp_executor.submit(self.obsidian_mcp.search_notes, query))
+            obsidian_mcp = self._get_mcp_instance("obsidian_mcp", lambda: ObsidianMCP(OBSIDIAN_VAULT_PATH))
+            if obsidian_mcp and any(w in q_lower for w in ["nota", "obsidian", "mi conocimiento"]):
+                mcp_tasks.append(self.mcp_executor.submit(obsidian_mcp.search_notes, query))
 
             if mcp_tasks:
                 try:
@@ -792,7 +798,8 @@ JSON:"""
                     contexto_final += f"Lenguaje: {language}\n"
                     if sel_str:
                         contexto_final += sel_str
-                    contexto_final += f"Código Completo:\n```\n{code}\n```\n"
+                    code_excerpt = code if len(code) <= 3000 else code[:3000] + "\n...[truncado por ahorro de memoria]"
+                    contexto_final += f"Código Completo:\n```\n{code_excerpt}\n```\n"
                     contexto_final += f"----------------------------------\n"
                 else:
                     contexto_final += f"\n--- Contexto de VS Code Activo ---\nNo hay ningún archivo activo o seleccionado en VS Code en este momento.\n----------------------------------\n"

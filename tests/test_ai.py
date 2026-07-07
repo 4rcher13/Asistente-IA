@@ -130,6 +130,19 @@ class TestAI(unittest.TestCase):
             res = self.ai.route_command("explícame que es machine learning")
             self.assertIsNone(res.get("intent"))
 
+    def test_build_context_skips_rag_for_simple_queries(self):
+        """Consultas simples no deberían disparar RAG ni contexto pesado."""
+        mem = MagicMock()
+        mem.get_recent.return_value = []
+        mem.vector_db = MagicMock()
+        mem.vector_db.get_context_string.return_value = "contexto" 
+        ai = AIService(mem, warmup=False)
+
+        context = ai._build_context("abre youtube")
+
+        self.assertEqual(context, "")
+        mem.vector_db.get_context_string.assert_not_called()
+
     def test_disable_ai(self):
         """disable_ai() desactiva todos los motores."""
         self.ai.ia_habilitada = True

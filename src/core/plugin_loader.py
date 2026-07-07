@@ -33,7 +33,7 @@ class PluginLoader:
     def load_all(self):
         """Escanea el directorio y carga scripts y markdown."""
         if not os.path.exists(self.skills_dir):
-            logger.warning(f"Directorio de skills '{self.skills_dir}' no existe.")
+            logger.debug("Directorio de skills '%s' no existe; omitiendo carga.", self.skills_dir)
             return
 
         logger.info(f"Escaneando skills en {self.skills_dir}...")

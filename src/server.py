@@ -6,13 +6,19 @@ from src.core.editor_context import update_editor_context
 
 app = FastAPI()
 
-# Configurar CORS para permitir peticiones desde la extensión de VS Code u otros clientes locales
+# CORS restringido a clientes locales (extensión VS Code, webviews)
+_LOCAL_ORIGINS = [
+    "http://127.0.0.1:8000",
+    "http://localhost:8000",
+    "vscode-webview://",
+    "null",  # webviews embebidos sin origin
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_LOCAL_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 class Selection(BaseModel):

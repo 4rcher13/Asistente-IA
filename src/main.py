@@ -1,6 +1,7 @@
 import sys
 import logging
 import argparse
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 # Añadir el directorio raíz al path si es necesario (para ejecución directa)
@@ -28,13 +29,16 @@ def main():
         except Exception:
             pass
     stream_handler = logging.StreamHandler(sys.stdout)
+    file_handler = RotatingFileHandler(
+        LOG_FILE,
+        maxBytes=5 * 1024 * 1024,  # 5 MB por archivo
+        backupCount=3,
+        encoding='utf-8',
+    )
     logging.basicConfig(
         level=log_level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(LOG_FILE, encoding='utf-8'),
-            stream_handler
-        ]
+        handlers=[file_handler, stream_handler],
     )
 
     logging.info("Arrancando Ícaro desde main principal.")

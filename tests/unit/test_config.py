@@ -1,84 +1,85 @@
 """
-Tests para módulo de configuración
+Tests para módulo de configuración (settings.py)
 """
 
-import pytest
 import os
-from unittest.mock import patch, MagicMock
+import sys
+import pytest
+from unittest.mock import patch
+
+
+_CONFIG_MODULES = (
+    "src.config",
+    "src.config.settings",
+)
+
+
+def _reload_config():
+    for key in _CONFIG_MODULES:
+        sys.modules.pop(key, None)
+    from src.config import ConfigView
+    return ConfigView()
 
 
 class TestConfig:
-    """Tests para la clase Config"""
-    
+    """Tests para ConfigView / settings."""
+
     @pytest.fixture(autouse=True)
     def reset_config_module(self):
-        import sys
-        modules_to_restore = {}
-        for key in ['src.config', 'src.config.config']:
-            if key in sys.modules:
-                modules_to_restore[key] = sys.modules[key]
-                del sys.modules[key]
+        saved = {key: sys.modules[key] for key in _CONFIG_MODULES if key in sys.modules}
+        for key in _CONFIG_MODULES:
+            sys.modules.pop(key, None)
         yield
-        import sys
-        for key, mod in modules_to_restore.items():
-            sys.modules[key] = mod
+        for key in _CONFIG_MODULES:
+            sys.modules.pop(key, None)
+        sys.modules.update(saved)
 
     @pytest.mark.unit
     def test_config_loads_from_env(self):
-        """Debe cargar configuración desde variables de entorno"""
-        with patch.dict(os.environ, {"ENVIRONMENT": "testing", "DEBUG": "True"}):
-            from src.config import Config
-            config = Config()
+        with patch.dict(os.environ, {"ENVIRONMENT": "testing", "DEBUG": "True", "SECRET_KEY": "test-key"}):
+            config = _reload_config()
             assert config.ENVIRONMENT == "testing"
             assert config.DEBUG is True
-    
+
     @pytest.mark.unit
     def test_config_defaults(self):
-        """Debe usar valores por defecto"""
-        from src.config import Config
-        config = Config()
-        assert config.LOG_LEVEL in ["INFO", "DEBUG"]
-        assert config.DB_HOST == "localhost"
-    
+        with patch.dict(os.environ, {"SECRET_KEY": "test-key"}):
+            config = _reload_config()
+            assert config.LOG_LEVEL in ["INFO", "DEBUG"]
+            assert config.DB_HOST == "localhost"
+
     @pytest.mark.unit
     def test_database_url_construction(self):
-        """Debe construir URL de BD correctamente"""
         with patch.dict(os.environ, {
+            "SECRET_KEY": "test-key",
             "DB_USER": "test_user",
             "DB_PASSWORD": "test_pass",
             "DB_HOST": "localhost",
             "DB_PORT": "5432",
-            "DB_NAME": "testdb"
+            "DB_NAME": "testdb",
         }):
-            from src.config import Config
-            config = Config()
+            config = _reload_config()
             expected = "postgresql://test_user:test_pass@localhost:5432/testdb"
             assert config.DATABASE_URL == expected
-    
+
     @pytest.mark.unit
     def test_security_error_on_missing_secret_key(self):
-        """Debe lanzar error si SECRET_KEY falta en producción"""
         with patch.dict(os.environ, {"ENVIRONMENT": "production", "SECRET_KEY": ""}):
-            # Limpiar el import cache
-            import sys
-            if 'src.config' in sys.modules:
-                del sys.modules['src.config']
-            
-            # Esta prueba es indicativa - en realidad fallaría al importar
-            # Lo importante es que lo validemos en config.py
-            pass
-    
+            with pytest.raises(ValueError, match="SECRET_KEY"):
+                _reload_config()
+
     @pytest.mark.unit
     def test_config_to_dict_excludes_secrets(self):
-        """Debe excluir secretos en to_dict()"""
-        from src.config import Config
-        config_dict = Config.to_dict(exclude_secrets=True)
-        assert "SECRET_KEY" not in config_dict.values()
-        assert "DB_PASSWORD" not in config_dict.values()
-    
+        with patch.dict(os.environ, {"SECRET_KEY": "test-key"}):
+            _reload_config()
+            from src.config import ConfigView
+            config_dict = ConfigView.to_dict(exclude_secrets=True)
+            assert "SECRET_KEY" not in config_dict
+            assert "DB_PASSWORD" not in config_dict
+
     @pytest.mark.unit
     def test_config_validate_passes(self):
-        """Debe pasar validación en desarrollo"""
-        from src.config import Config
-        # No debe lanzar error
-        Config.validate()
+        with patch.dict(os.environ, {"SECRET_KEY": "test-key", "ENVIRONMENT": "development"}):
+            _reload_config()
+            from src.config import ConfigView
+            ConfigView.validate()
