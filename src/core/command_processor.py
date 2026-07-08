@@ -1,7 +1,9 @@
 import logging
 from collections.abc import Mapping
 from difflib import get_close_matches
-from typing import Any, Protocol, TypeAlias
+from typing import Any, Dict, List, Protocol, TypeAlias
+
+from .protocols import ActionProtocol
 
 try:
     import rapidfuzz
@@ -39,18 +41,18 @@ class AIService(Protocol):
         ...
 
 
-class ActionService(Protocol):
-    def execute(self, intent_data: IntentData) -> Any:
+class ActionService(ActionProtocol, Protocol):
+    def execute(self, config: Dict[str, Any]) -> Any:
         ...
 
 
 class PlannerService(Protocol):
-    def create_plan(self, command: str) -> list[PlanStep]:
+    def create_plan(self, command: str) -> List[Dict[str, Any]]:
         ...
 
 
 class ExecutorService(Protocol):
-    def execute_plan(self, steps: list[PlanStep]) -> Any:
+    def execute_plan(self, steps: List[Dict[str, Any]]) -> Any:
         ...
 
 
@@ -127,12 +129,8 @@ class CommandProcessor:
             logger.exception("No se pudo enrutar el comando.")
             return {"respuesta": _DEFAULT_RESPONSE}
         
-    def _execute(self, intent_data: object, command_text: str = "") -> str:
+    def _execute(self, intent_data: IntentData, command_text: str = "") -> str:
         """Ejecuta la acción del sistema operativo si hay intent."""
-
-        if not isinstance(intent_data, Mapping):
-            logger.warning("Intent data invalido: %r", intent_data)
-            return _DEFAULT_RESPONSE
 
         respuesta_hablada = self._spoken_response(intent_data)
 

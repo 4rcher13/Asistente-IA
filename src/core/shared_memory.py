@@ -7,16 +7,19 @@ eventos y tengan visibilidad de lo que ocurre en el sistema completo.
 """
 import logging
 import threading
-from typing import Optional
+from typing import Optional, Union
+
+from .memory_manager import MemoryManager
+from .protocols import MemoryProtocol
 
 logger = logging.getLogger(__name__)
 
 # Singleton global (inicializado una sola vez desde Icaro)
-_shared_memory_instance: Optional["MemoryManager"] = None
+_shared_memory_instance: Optional[Union[MemoryManager, MemoryProtocol]] = None
 _memory_lock = threading.Lock()
 
 
-def set_shared_memory(manager: "MemoryManager") -> None:
+def set_shared_memory(manager: Union[MemoryManager, MemoryProtocol]) -> None:
     """
     Registra la instancia global de MemoryManager.
     
@@ -31,7 +34,7 @@ def set_shared_memory(manager: "MemoryManager") -> None:
         logger.info("Memoria compartida registrada (shared_memory singleton)")
 
 
-def get_shared_memory() -> Optional["MemoryManager"]:
+def get_shared_memory() -> Optional[Union[MemoryManager, MemoryProtocol]]:
     """
     Obtiene la instancia global de MemoryManager.
     

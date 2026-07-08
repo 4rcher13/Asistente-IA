@@ -4,7 +4,7 @@ import re
 import threading
 from datetime import datetime
 from enum import Enum, auto
-from typing import Optional
+from typing import Any, Dict, List, Optional, cast
 
 from ..config.settings import WAKE_WORD
 from .memory_manager import MemoryManager
@@ -69,14 +69,14 @@ class Icaro:
         self._sleeping_logged = False
 
         # 2. Servicios
-        self.memory = memory_manager or MemoryManager()
+        self.memory: MemoryProtocol = memory_manager or MemoryManager()
         
         # Registrar memoria compartida (singleton) para acceso global desde MCPs y servicios
         set_shared_memory(self.memory)
         
-        self.audio = audio_service or AudioService()
-        self.action = action_service or ActionService()
-        self.ai = ai_service or AIService(self.memory)
+        self.audio: AudioProtocol = audio_service or AudioService()
+        self.action: ActionProtocol = action_service or ActionService()
+        self.ai: AIProtocol = ai_service or AIService(self.memory)
 
         # Inyectar conectores necesarios para acciones
         self.action.set_obsidian_mcp(getattr(self.ai, 'obsidian_mcp', None))
@@ -87,8 +87,8 @@ class Icaro:
             self._disable_ai_service()
 
         # 3.5. Task Planner y Execution Service
-        self.planner = TaskPlanner(self.ai)
-        self.executor = ExecutionService(self.action, self.audio)
+        self.planner: TaskPlanner = TaskPlanner(self.ai)
+        self.executor: ExecutionService = ExecutionService(self.action, self.audio)
 
         # 4. Router de comandos
         self.processor = CommandProcessor(
@@ -173,19 +173,20 @@ class Icaro:
     # -------------------- Deshabilitar IA (sin hackear atributos internos) --------------------
     def _disable_ai_service(self) -> None:
         """Desactiva la IA local llamando al método correcto (si existe)."""
-        if hasattr(self.ai, 'disable_ai'):
-            self.ai.disable_ai()
+        disable_ai = getattr(self.ai, 'disable_ai', None)
+        if callable(disable_ai):
+            disable_ai()
         else:
             # Fallback seguro para mantener compatibilidad
             logger.warning("El servicio AI no implementa disable_ai(); se usan atributos directos.")
             if hasattr(self.ai, 'ia_habilitada'):
-                self.ai.ia_habilitada = False
+                setattr(self.ai, 'ia_habilitada', False)
             if hasattr(self.ai, 'ollama_habilitado'):
-                self.ai.ollama_habilitado = False
+                setattr(self.ai, 'ollama_habilitado', False)
             if hasattr(self.ai, 'nvidia_habilitado'):
-                self.ai.nvidia_habilitado = False
+                setattr(self.ai, 'nvidia_habilitado', False)
             if hasattr(self.ai, '_models_initialized'):
-                self.ai._models_initialized = True
+                setattr(self.ai, '_models_initialized', True)
         logger.info("Modo --no-ai activo: solo comandos locales.")
 
     # -------------------- Lógica de inactividad --------------------
@@ -230,13 +231,13 @@ class Icaro:
             # Esperar a que finalice la llamada (ej. en apagado), con un timeout de 4 segundos
             t.join(timeout=4.0)
 
-    def _summarize_history(self, historial: list) -> Optional[str]:
+    def _summarize_history(self, historial: List[Dict[str, Any]]) -> Optional[str]:
         """Pide al servicio de IA un resumen si expone esa capacidad."""
         summarize_session = getattr(self.ai, "summarize_session", None)
         if not callable(summarize_session):
             logger.debug("El servicio AI no implementa summarize_session(); se omite el resumen.")
             return None
-        return summarize_session(historial)
+        return cast(Optional[str], summarize_session(historial))
 
     def _save_session_summary(self, resumen: str, wait: bool = False) -> None:
         """Guarda el resumen en memoria vectorial cuando está disponible."""

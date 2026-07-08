@@ -3,6 +3,7 @@ Configuración centralizada del asistente Ícaro.
 Carga variables de entorno, define rutas y parámetros con validaciones.
 """
 
+import importlib
 import logging
 import os
 import secrets
@@ -45,13 +46,14 @@ LOG_FILE: Final[Path] = LOGS_DIR / "icaro.log"
 # ----------------------------------------------------------------------
 # Seguridad, JWT y secretos
 # ----------------------------------------------------------------------
-SECRET_KEY: str = os.getenv("SECRET_KEY", "")
-if not SECRET_KEY:
+SECRET_KEY_ENV: str = os.getenv("SECRET_KEY", "")
+secret_key: str = SECRET_KEY_ENV
+if not secret_key:
     if ENVIRONMENT == "production":
         raise ValueError("SECRET_KEY must be set in production via environment variable")
-    SECRET_KEY = f"dev-temp-{secrets.token_hex(16)}"
+    secret_key = f"dev-temp-{secrets.token_hex(16)}"
 
-JWT_SECRET: str = os.getenv("JWT_SECRET", SECRET_KEY)
+JWT_SECRET: str = os.getenv("JWT_SECRET", secret_key)
 JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRATION: int = int(os.getenv("JWT_EXPIRATION", "3600"))
 
@@ -144,7 +146,7 @@ def validate_config() -> None:
     errors: List[str] = []
 
     if ENVIRONMENT == "production":
-        if not SECRET_KEY or SECRET_KEY.startswith("dev-"):
+        if not secret_key or secret_key.startswith("dev-"):
             errors.append("SECRET_KEY debe ser segura en producción")
         if DEBUG:
             errors.append("DEBUG debe ser False en producción")
@@ -171,7 +173,7 @@ def config_to_dict(*, exclude_secrets: bool = True) -> Dict[str, Any]:
 
     if not exclude_secrets:
         summary.update({
-            "SECRET_KEY": "***" if SECRET_KEY else None,
+            "SECRET_KEY": "***" if secret_key else None,
             "JWT_SECRET": "***" if JWT_SECRET else None,
             "DB_PASSWORD": "***" if DB_PASSWORD else None,
             "OPENAI_API_KEY": "***" if OPENAI_API_KEY else None,
@@ -187,7 +189,7 @@ class ConfigView:
     ENVIRONMENT = ENVIRONMENT
     DEBUG = DEBUG
     LOG_LEVEL = LOG_LEVEL
-    SECRET_KEY = SECRET_KEY
+    SECRET_KEY = secret_key
     JWT_SECRET = JWT_SECRET
     JWT_ALGORITHM = JWT_ALGORITHM
     JWT_EXPIRATION = JWT_EXPIRATION
@@ -222,12 +224,22 @@ config = ConfigView()
 
 def check_dependencies() -> None:
     """Verifica que las librerías necesarias estén instaladas."""
-    try:
-        import pyaudio
-        import webrtcvad
-        import speech_recognition
-        import ollama
-        import google.genai
-    except ImportError as e:
-        print(f"Falta una dependencia: {e}")
+    required_modules = {
+        "pyaudio": "pyaudio",
+        "webrtcvad": "webrtcvad",
+        "speech_recognition": "SpeechRecognition",
+        "ollama": "ollama",
+        "google.genai": "google-generativeai",
+    }
+
+    missing: List[str] = []
+    for module_name, package_name in required_modules.items():
+        try:
+            importlib.import_module(module_name)
+        except ImportError:
+            missing.append(package_name)
+
+    if missing:
+        print("Faltan dependencias para el asistente: " + ", ".join(missing))
+        print("Instálalas con: pip install " + " ".join(missing))
         sys.exit(1)

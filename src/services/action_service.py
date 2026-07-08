@@ -1,22 +1,22 @@
 import os
 import io
-import base64
 import platform
 import webbrowser
 import time
 import datetime
 import subprocess
 import logging
-from typing import Dict, Any, Optional
+from importlib import import_module
+from typing import Any, Dict, Optional, cast
 from ..core.event_bus import bus, EventType
 from ..core.shared_memory import log_event
 
 logger = logging.getLogger(__name__)
 
 # ─── Lazy Imports para GUI (evitar carga pesada al arranque) ───────────────
-_pyautogui = None
-_pyperclip = None
-_gw = None
+_pyautogui: Optional[Any] = None
+_pyperclip: Optional[Any] = None
+_gw: Optional[Any] = None
 _gui_loaded = False
 
 
@@ -27,13 +27,11 @@ def _ensure_gui_modules():
         return
     _gui_loaded = True
     try:
-        import pyautogui as _pa
-        import pyperclip as _pc
-        import pygetwindow as _pw
-        _pyautogui = _pa
-        _pyautogui.FAILSAFE = True  # SECURITY: Permite abortar moviendo el ratón a una esquina
-        _pyperclip = _pc
-        _gw = _pw
+        _pyautogui = import_module("pyautogui")
+        _pyperclip = import_module("pyperclip")
+        _gw = import_module("pygetwindow")
+        if _pyautogui is not None:
+            _pyautogui.FAILSAFE = True  # SECURITY: Permite abortar moviendo el ratón a una esquina
     except ImportError:
         logger.warning("Módulos de automatización GUI no instalados. (pip install pyautogui pyperclip pygetwindow)")
 
@@ -58,11 +56,11 @@ class ActionService:
         self.obsidian_mcp = None
         self.ai_service = None  # Inyectado para visión multimodal
 
-    def set_obsidian_mcp(self, mcp):
+    def set_obsidian_mcp(self, mcp: Optional[Any]) -> None:
         """Inyección de dependencia para acciones de conocimiento."""
         self.obsidian_mcp = mcp
 
-    def set_ai_service(self, ai_svc):
+    def set_ai_service(self, ai_svc: Optional[Any]) -> None:
         """Inyección de dependencia para acciones que necesitan el motor de IA (e.g. visión)."""
         self.ai_service = ai_svc
 
@@ -143,28 +141,44 @@ class ActionService:
         _ensure_gui_modules()
         objetivo = nombre_ventana.lower().strip()
         try:
-            if _gw:
-                encontrada = next((v for v in _gw.getAllWindows() if objetivo and objetivo in v.title.lower() and v.visible), None)
-            else:
-                encontrada = None
-                
+            encontrada: Optional[Any] = None
+            if _gw is not None:
+                ventanas = getattr(_gw, "getAllWindows", None)
+                if callable(ventanas):
+                    all_windows = cast(list[Any], ventanas() or [])
+                    encontrada = next(
+                        (
+                            window
+                            for window in all_windows
+                            if objetivo
+                            and objetivo in str(getattr(window, "title", "")).lower()
+                            and bool(getattr(window, "visible", False))
+                        ),
+                        None,
+                    )
+
             if encontrada and _pyautogui:
-                encontrada.activate()
+                window = encontrada
+                activate = getattr(window, "activate", None)
+                if callable(activate):
+                    activate()
                 time.sleep(0.2)
-                es_navegador = any(k in encontrada.title.lower() for k in ("youtube", "edge", "chrome", "firefox"))
-                if es_navegador: _pyautogui.hotkey('ctrl', 'w')
-                else: _pyautogui.hotkey('alt', 'f4')
+                title = str(getattr(window, "title", "")).lower()
+                es_navegador = any(k in title for k in ("youtube", "edge", "chrome", "firefox"))
+                if es_navegador:
+                    _pyautogui.hotkey("ctrl", "w")
+                else:
+                    _pyautogui.hotkey("alt", "f4")
                 return f"Se cerró {objetivo}."
             return f"No encontré ventana {objetivo}."
         except Exception as e:
             return f"Error al cerrar ventana: {str(e)}"
 
-    def _control_volumen(self, accion: str) -> str:
+    def _control_volumen(self, accion: Optional[str]) -> str:
         if platform.system() != "Windows": return "No disponible"
         _ensure_gui_modules()
         mapa = {"subir": ("volumeup", 5), "bajar": ("volumedown", 5), "silenciar": ("volumemute", 1)}
-        # B9 FIX: convertir a str antes de .lower() para evitar AttributeError con None
-        accion_str = str(accion).lower() if accion is not None else ""
+        accion_str = (accion or "").lower()
         tecla, rep = mapa.get(accion_str, (None, 0))
         if tecla and _pyautogui:
             try:

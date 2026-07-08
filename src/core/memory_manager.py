@@ -5,6 +5,7 @@ import threading
 import atexit
 import time
 from pathlib import Path
+from typing import Any, Dict, List
 
 from ..config.settings import HISTORY_FILE, MAX_HISTORY
 from .vector_memory import VectorMemory
@@ -26,7 +27,7 @@ class MemoryManager:
         self.pending_changes = 0
         self.last_flush_time = time.time()
         
-        self.historial = self._leer_archivo()
+        self.historial: List[Dict[str, Any]] = self._leer_archivo()
         
         # Registrar guardado al salir
         atexit.register(self.flush)
@@ -42,7 +43,7 @@ class MemoryManager:
             logger.error(f"No se pudo iniciar VectorMemory: {e}")
             self.vector_db = None
 
-    def _leer_archivo(self):
+    def _leer_archivo(self) -> List[Dict[str, Any]]:
         """Lee el historial del disco de forma segura en la inicialización."""
         try:
             if not self.archivo.exists():
@@ -56,7 +57,7 @@ class MemoryManager:
             logger.error("Error de I/O leyendo historial.")
             return []
 
-    def cargar(self):
+    def cargar(self) -> List[Dict[str, Any]]:
         """Devuelve la caché del historial en memoria."""
         with self.lock:
             return list(self.historial)
@@ -110,7 +111,7 @@ class MemoryManager:
             except Exception as e:
                 logger.error(f"Error en flush de historial: {e}")
 
-    def guardar(self, rol: str, texto: str):
+    def guardar(self, rol: str, texto: str) -> None:
         """Guarda un nuevo mensaje en el buffer con filtrado de seguridad."""
         texto_seguro = self._redactar_sensible(texto)
         texto_final = f"[Largo omitido: {texto_seguro[:50]}...]" if len(texto_seguro) > 1000 else texto_seguro
@@ -137,7 +138,7 @@ class MemoryManager:
             except Exception as e:
                 logger.debug(f"Error asíncrono en VectorMemory: {e}")
 
-    def get_recent(self, n: int = 5):
+    def get_recent(self, n: int = 5) -> List[Dict[str, Any]]:
         """Retorna las últimas n interacciones del historial."""
         with self.lock:
             return list(self.historial[-n:])
