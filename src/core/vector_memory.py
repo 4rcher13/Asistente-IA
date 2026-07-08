@@ -15,12 +15,12 @@ def _interpreter_shutting_down() -> bool:
 # ─── ChromaDB (import ligero, ~0.1s) ──────────────────────────────────────
 try:
     import chromadb
-    CHROMADB_AVAILABLE = True
+    chromadb_available = True
 except ImportError:
-    CHROMADB_AVAILABLE = False
+    chromadb_available = False
     logger.warning("ChromaDB no disponible. La memoria RAG estará desactivada.")
 
-if CHROMADB_AVAILABLE:
+if chromadb_available:
     from chromadb.api.types import EmbeddingFunction, Documents, Embeddings
 
     class GeminiEmbeddingFunction(EmbeddingFunction[Documents]):
@@ -44,9 +44,16 @@ if CHROMADB_AVAILABLE:
             try:
                 response = self._client.models.embed_content(
                     model="gemini-embedding-2",
-                    contents=input,
+                    contents=list(input),
                 )
-                return [e.values for e in response.embeddings]
+                if response.embeddings is None:
+                    return []
+                
+                valid_embeddings: list[list[float]] = []
+                for e in response.embeddings:
+                    if e.values is not None:
+                        valid_embeddings.append(list(e.values))
+                return valid_embeddings
             except Exception as e:
                 logger.error(f"Error en GeminiEmbeddingFunction: {e}")
                 raise e
@@ -101,7 +108,7 @@ def _load_embedding_model_background() -> None:
     if _embedding_ready.is_set():
         return
 
-    if not AI_ENABLE_RAG or not CHROMADB_AVAILABLE or _interpreter_shutting_down():
+    if not AI_ENABLE_RAG or not chromadb_available or _interpreter_shutting_down():
         _embedding_ready.set()
         return
 
@@ -143,7 +150,7 @@ class VectorMemory:
     """
 
     def __init__(self, db_path: str = "data/chroma_db"):
-        self.enabled = CHROMADB_AVAILABLE and AI_ENABLE_RAG
+        self.enabled = chromadb_available and AI_ENABLE_RAG
         self.collection = None
         self.client = None
         self._db_path = db_path

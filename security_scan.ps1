@@ -1,4 +1,4 @@
-﻿# Security Scan Script - Asistente IA
+# Security Scan Script - Asistente IA
 # Detecta vulnerabilidades OWASP Top 10
 
 Write-Host "=====================================" -ForegroundColor Cyan
@@ -7,7 +7,7 @@ Write-Host "=====================================" -ForegroundColor Cyan
 
 # Directorios existentes
 $paths = @()
-foreach ($p in @("src", "ui", "training")) {
+foreach ($p in @("src", "ui")) {
     if (Test-Path $p) {
         $paths += $p
     }
@@ -15,7 +15,7 @@ foreach ($p in @("src", "ui", "training")) {
 
 # Validar si existen rutas válidas para analizar
 if ($paths.Count -eq 0) {
-    Write-Host "❌ No se encontraron los directorios esperados ('src', 'ui', 'training')." -ForegroundColor Red
+    Write-Host "❌ No se encontraron los directorios esperados ('src', 'ui')." -ForegroundColor Red
     Write-Host "=====================================" -ForegroundColor Cyan
     exit
 }
