@@ -6,6 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
+from ..config.settings import AI_ENABLE_RAG
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,7 +57,20 @@ if chromadb_available:
                         valid_embeddings.append(list(e.values))
                 return valid_embeddings
             except Exception as e:
-                logger.error(f"Error en GeminiEmbeddingFunction: {e}")
+                err_str = str(e)
+                # Detectar errores de autenticación para dar un mensaje claro
+                is_auth_error = any(x in err_str for x in (
+                    "API_KEY_INVALID", "API key not valid", "UNAUTHENTICATED",
+                    "401", "403", "PERMISSION_DENIED",
+                ))
+                if is_auth_error:
+                    logger.error(
+                        "GEMINI_API_KEY inválida o sin permisos. "
+                        "Obtén una clave válida en: https://aistudio.google.com/apikey "
+                        "y actualiza GEMINI_API_KEY en tu archivo .env"
+                    )
+                else:
+                    logger.error(f"Error en GeminiEmbeddingFunction: {e}")
                 raise e
 
         @staticmethod

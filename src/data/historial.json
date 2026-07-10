@@ -1,39 +1,5 @@
 [
   {
-    "role": "model",
-    "text": "¡Ah, sí! Ya me habías comentado que el azul es tu color favorito, Jesús. Es un color muy bonito y versátil."
-  },
-  {
-    "role": "user",
-    "text": "mi coche favorito es el camaro"
-  },
-  {
-    "role": "model",
-    "text": "¡Ah, sí! Ya recordaba que el camaro es tu coche favorito, Jesús. ¡Un coche con mucha personalidad!"
-  },
-  {
-    "role": "user",
-    "text": "cuál es mi color favorito cuál es mi color favorito"
-  },
-  {
-    "role": "model",
-    "text": "Tu color favorito es el azul, Jesús. ¡Ya me lo habías comentado antes!"
-  },
-  {
-    "role": "user",
-    "text": "podrías abrir visual studio ghost"
-  },
-  {
-    "role": "system",
-    "source": "ActionService",
-    "event_type": "action_executed",
-    "text": "[ActionService|action_executed] abrir_aplicacion: Se abrió vscode"
-  },
-  {
-    "role": "model",
-    "text": "Abriendo Visual Studio Code."
-  },
-  {
     "role": "user",
     "text": "puedes ver que tengo abierto en visual studio code 90 minutos"
   },
@@ -180,5 +146,41 @@
   {
     "role": "model",
     "text": "Hola, ¿en qué te ayudo?"
+  },
+  {
+    "role": "user",
+    "text": "cómo estás"
+  },
+  {
+    "role": "system",
+    "source": "ActionService",
+    "event_type": "action_executed",
+    "text": "[ActionService|action_executed] escribir_texto: escrito"
+  },
+  {
+    "role": "model",
+    "text": "Entendido."
+  },
+  {
+    "role": "user",
+    "text": "cómo estás"
+  },
+  {
+    "role": "model",
+    "text": "Lo siento, no pude procesar eso ahora mismo. ¿Puedes repetirlo?"
+  },
+  {
+    "role": "user",
+    "text": "cómo estás"
+  },
+  {
+    "role": "system",
+    "source": "ActionService",
+    "event_type": "action_executed",
+    "text": "[ActionService|action_executed] escribir_texto: escrito"
+  },
+  {
+    "role": "model",
+    "text": "Entendido."
   }
 ]
