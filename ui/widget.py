@@ -12,18 +12,19 @@ import webview
 import threading
 import socket
 import os
-
+from typing import Optional
 
 class Api:
     """Puente Python↔JavaScript expuesto al widget HTML."""
 
-    def __init__(self, window_container: list):
+    def __init__(self, window_container: list[Optional[webview.Window]]) -> None:
         self._refs = window_container
 
     def close(self) -> None:
         """Llamado desde el botón × del widget para cerrar la ventana."""
         try:
-            self._refs[0].destroy()
+            if self._refs[0]:
+                self._refs[0].destroy()
         except Exception as exc:
             print(f"[UI] Error cerrando ventana: {exc}")
 
@@ -79,7 +80,7 @@ def udp_listener(window: webview.Window) -> None:
 if __name__ == "__main__":
     html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "widget.html")
 
-    window_ref: list = [None]
+    window_ref: list[Optional[webview.Window]] = [None]
     api = Api(window_ref)
 
     window = webview.create_window(
